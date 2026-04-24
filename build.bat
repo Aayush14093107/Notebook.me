@@ -1,31 +1,21 @@
 @echo off
+setlocal
+pushd "%~dp0"
 echo =============================================
-echo   notebook.me v5.0.0 — Build Script
+echo   notebook.me v6.0.0 - Jar Build
 echo =============================================
 echo.
-echo [1/3] Compiling Java sources...
-javac -encoding UTF-8 *.java
-if %ERRORLEVEL% NEQ 0 (
-    echo COMPILATION FAILED!
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-portable.ps1" -JarOnly
+set "BUILD_EXIT=%ERRORLEVEL%"
+popd
+echo.
+if not "%BUILD_EXIT%"=="0" (
+    echo BUILD FAILED!
     pause
-    exit /b 1
+    exit /b %BUILD_EXIT%
 )
-echo       Done.
-echo.
-echo [2/3] Packaging into NotebookMe.jar...
-"C:\Program Files\Java\jdk-25\bin\jar.exe" cfm NotebookMe.jar MANIFEST.MF *.class
-if %ERRORLEVEL% NEQ 0 (
-    echo JAR PACKAGING FAILED!
-    pause
-    exit /b 1
-)
-echo       Done.
-echo.
-echo [3/3] Build complete!
-echo.
 echo   Output: NotebookMe.jar
 echo   Run with: java -jar NotebookMe.jar
-echo   Or double-click NotebookMe.jar
 echo.
 echo =============================================
 pause

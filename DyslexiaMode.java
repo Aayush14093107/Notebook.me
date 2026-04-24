@@ -2,7 +2,7 @@ import java.awt.*;
 import javax.swing.*;
 
 // ════════════════════════════════════════════════════════
-//  Dyslexia-Friendly Mode — Accessibility settings
+//  Dyslexia-Friendly Mode - Accessibility settings
 // ════════════════════════════════════════════════════════
 class DyslexiaMode {
     boolean enabled = false;
@@ -48,7 +48,7 @@ class DyslexiaMode {
                 super.paintComponent(g);
                 if (!enabled || !readingRuler) return;
                 Graphics2D g2 = (Graphics2D) g;
-                // Reading ruler — translucent highlight bar
+                // Reading ruler - translucent highlight bar
                 g2.setColor(rulerColor);
                 g2.fillRect(0, rulerY - 2, getWidth(), 28);
                 // Thin guide line

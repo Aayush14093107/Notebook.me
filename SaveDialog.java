@@ -1,13 +1,10 @@
-/**
- * SaveDialog.java — Custom themed Save dialog for notebook.me v5.0.0
- */
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import javax.swing.*;
-import javax.swing.border.*;
 
 public class SaveDialog extends JDialog {
+    private final Theme theme;
     private File selectedFile;
     private boolean approved = false;
     private JTextField fileNameField;
@@ -19,181 +16,219 @@ public class SaveDialog extends JDialog {
 
     public SaveDialog(JFrame parent, Theme theme, File suggestedFile) {
         super(parent, "Save As", true);
+        this.theme = theme;
         this.currentDir = suggestedFile != null && suggestedFile.getParentFile() != null
-            ? suggestedFile.getParentFile() : new File(System.getProperty("user.home"));
+            ? suggestedFile.getParentFile()
+            : new File(System.getProperty("user.home"));
 
-        Color bg = theme.getMenuBg(), fg = theme.getForeground(), ac = theme.getAccent();
-        Color inputBg = theme.getSecondary(), border = theme.getBorder();
-
-        setSize(560, 440);
+        setSize(580, 470);
         setLocationRelativeTo(parent);
         setResizable(false);
-        getContentPane().setBackground(bg);
-        setLayout(new BorderLayout(0, 0));
+        buildUI(parent, suggestedFile);
+    }
 
-        // ── Title Bar ──
-        JPanel titleBar = new JPanel(new BorderLayout());
-        titleBar.setBackground(ac);
-        titleBar.setBorder(BorderFactory.createEmptyBorder(10, 16, 10, 16));
-        JLabel titleLabel = new JLabel("💾  Save File");
-        titleLabel.setFont(new Font("Segoe UI Emoji", Font.BOLD, 15));
-        titleLabel.setForeground(Color.WHITE);
-        titleBar.add(titleLabel, BorderLayout.WEST);
-        add(titleBar, BorderLayout.NORTH);
+    private void buildUI(JFrame parent, File suggestedFile) {
+        GradientPanel root = new GradientPanel(
+            new BorderLayout(),
+            theme.getBackground(),
+            theme.getBackground(),
+            null,
+            0);
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setContentPane(root);
 
-        // ── Main Content ──
-        JPanel content = new JPanel(new BorderLayout(12, 12));
-        content.setBackground(bg);
-        content.setBorder(BorderFactory.createEmptyBorder(16, 16, 8, 16));
+        SurfacePanel shell = new SurfacePanel(
+            new BorderLayout(0, 0),
+            ModernUI.panelColor(theme),
+            ModernUI.hairline(theme),
+            ModernUI.RADIUS);
+        root.add(shell, BorderLayout.CENTER);
 
-        // Path bar
-        JPanel pathPanel = new JPanel(new BorderLayout(6, 0));
-        pathPanel.setOpaque(false);
-        JLabel pathLabel = new JLabel("Location:");
-        pathLabel.setForeground(fg); pathLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        GradientPanel titleBar = new GradientPanel(
+            new BorderLayout(),
+            ModernUI.panelColor(theme),
+            ModernUI.panelColor(theme),
+            ModernUI.hairline(theme),
+            ModernUI.RADIUS);
+        titleBar.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        JPanel titleStack = new JPanel();
+        titleStack.setOpaque(false);
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        JLabel title = new JLabel("Save file");
+        title.setFont(ModernUI.uiFont(Font.BOLD, 18f));
+        title.setForeground(theme.getForeground());
+        JLabel subtitle = new JLabel("Pick a folder, a filename, and the right extension.");
+        subtitle.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        subtitle.setForeground(ModernUI.withAlpha(theme.getForeground(), 165));
+        titleStack.add(title);
+        titleStack.add(Box.createVerticalStrut(4));
+        titleStack.add(subtitle);
+        titleBar.add(titleStack, BorderLayout.WEST);
+        shell.add(titleBar, BorderLayout.NORTH);
+
+        JPanel content = ModernUI.transparentPanel(new BorderLayout(12, 12));
+        content.setBorder(BorderFactory.createEmptyBorder(12, 14, 10, 14));
+
+        JPanel pathPanel = ModernUI.transparentPanel(new BorderLayout(8, 0));
+        JLabel pathLabel = new JLabel("Location");
+        pathLabel.setForeground(theme.getForeground());
+        pathLabel.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
         pathField = new JTextField(currentDir.getAbsolutePath());
-        styleTextField(pathField, inputBg, fg, border);
-        JButton browseBtn = styledButton("Browse", ac, Color.WHITE);
-        browseBtn.addActionListener(e -> browseFolder(parent, theme));
+        ModernUI.styleTextField(pathField, theme, false);
+        JButton browseBtn = new JButton("Browse");
+        ModernUI.styleButton(browseBtn, theme, "secondary");
+        browseBtn.addActionListener(e -> browseFolder(parent));
         pathPanel.add(pathLabel, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(browseBtn, BorderLayout.EAST);
 
-        // Folder browser
         folderModel = new DefaultListModel<>();
         folderList = new JList<>(folderModel);
-        folderList.setBackground(inputBg); folderList.setForeground(fg);
-        folderList.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        folderList.setSelectionBackground(ac); folderList.setSelectionForeground(Color.WHITE);
-        folderList.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        ModernUI.styleList(folderList, theme);
+        folderList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focus);
+                String name = String.valueOf(value);
+                if ("..".equals(name)) {
+                    label.setText("Up one level");
+                } else {
+                    File file = new File(currentDir, name);
+                    label.setText((file.isDirectory() ? "Folder  " : "File  ") + name);
+                }
+                label.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+                label.setBackground(selected ? ModernUI.accentSoft(theme) : ModernUI.panelColor(theme));
+                label.setForeground(theme.getForeground());
+                return label;
+            }
+        });
         folderList.addMouseListener(new MouseAdapter() {
+            @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    String sel = folderList.getSelectedValue();
-                    if (sel != null) {
-                        if (sel.equals("📁 ..")) {
-                            File parent = currentDir.getParentFile();
-                            if (parent != null) { currentDir = parent; loadFolder(); }
-                        } else if (sel.startsWith("📁")) {
-                            String name = sel.substring(3).trim();
-                            File dir = new File(currentDir, name);
-                            if (dir.isDirectory()) { currentDir = dir; loadFolder(); }
-                        }
-                    }
+                    navigateFolder(folderList.getSelectedValue());
                 }
             }
         });
         JScrollPane folderScroll = new JScrollPane(folderList);
-        folderScroll.setBorder(BorderFactory.createLineBorder(border));
-        folderScroll.setPreferredSize(new Dimension(0, 180));
-        loadFolder();
+        ModernUI.styleScrollPane(folderScroll, theme, ModernUI.panelColor(theme));
+        folderScroll.setBorder(new RoundedBorder(ModernUI.hairline(theme), ModernUI.RADIUS, 1));
+        folderScroll.setPreferredSize(new Dimension(0, 210));
 
-        // File name & extension
-        JPanel filePanel = new JPanel(new BorderLayout(8, 0));
-        filePanel.setOpaque(false);
-        JLabel nameLabel = new JLabel("File name:");
-        nameLabel.setForeground(fg); nameLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JPanel filePanel = ModernUI.transparentPanel(new BorderLayout(8, 0));
+        JLabel nameLabel = new JLabel("File name");
+        nameLabel.setForeground(theme.getForeground());
+        nameLabel.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
         fileNameField = new JTextField(suggestedFile != null ? stripExt(suggestedFile.getName()) : "untitled");
-        styleTextField(fileNameField, inputBg, fg, border);
+        ModernUI.styleTextField(fileNameField, theme, false);
         extensionBox = new JComboBox<>(new String[]{".txt", ".md", ".java", ".py", ".html", ".css", ".js"});
-        extensionBox.setBackground(inputBg); extensionBox.setForeground(fg);
-        extensionBox.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        extensionBox.setBorder(BorderFactory.createLineBorder(border));
+        ModernUI.styleComboBox(extensionBox, theme);
         if (suggestedFile != null) {
             String ext = getExt(suggestedFile.getName());
             if (!ext.isEmpty()) extensionBox.setSelectedItem("." + ext);
         }
-        JPanel nameRow = new JPanel(new BorderLayout(6, 0)); nameRow.setOpaque(false);
-        nameRow.add(nameLabel, BorderLayout.WEST);
-        nameRow.add(fileNameField, BorderLayout.CENTER);
-        nameRow.add(extensionBox, BorderLayout.EAST);
-        filePanel.add(nameRow, BorderLayout.CENTER);
+        filePanel.add(nameLabel, BorderLayout.WEST);
+        filePanel.add(fileNameField, BorderLayout.CENTER);
+        filePanel.add(extensionBox, BorderLayout.EAST);
 
         content.add(pathPanel, BorderLayout.NORTH);
         content.add(folderScroll, BorderLayout.CENTER);
         content.add(filePanel, BorderLayout.SOUTH);
-        add(content, BorderLayout.CENTER);
+        shell.add(content, BorderLayout.CENTER);
 
-        // ── Button Bar ──
-        JPanel btnBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 8));
-        btnBar.setBackground(bg);
-        btnBar.setBorder(BorderFactory.createMatteBorder(1,0,0,0, border));
-        JButton saveBtn = styledButton("💾  Save", ac, Color.WHITE);
-        saveBtn.setFont(new Font("Segoe UI Emoji", Font.BOLD, 13));
-        saveBtn.setPreferredSize(new Dimension(120, 34));
-        JButton cancelBtn = styledButton("Cancel", inputBg, fg);
-        cancelBtn.setPreferredSize(new Dimension(90, 34));
-        saveBtn.addActionListener(e -> doSave());
+        JPanel footer = ModernUI.transparentPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        footer.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, ModernUI.hairline(theme)),
+            BorderFactory.createEmptyBorder(10, 14, 12, 14)));
+        JButton cancelBtn = new JButton("Cancel");
+        JButton saveBtn = new JButton("Save");
+        ModernUI.styleButton(cancelBtn, theme, "secondary");
+        ModernUI.styleButton(saveBtn, theme, "primary");
         cancelBtn.addActionListener(e -> { approved = false; dispose(); });
-        btnBar.add(cancelBtn); btnBar.add(saveBtn);
-        add(btnBar, BorderLayout.SOUTH);
-
+        saveBtn.addActionListener(e -> doSave());
+        footer.add(cancelBtn);
+        footer.add(saveBtn);
+        shell.add(footer, BorderLayout.SOUTH);
         getRootPane().setDefaultButton(saveBtn);
+
+        loadFolder();
+    }
+
+    private void navigateFolder(String selection) {
+        if (selection == null) return;
+        if (selection.equals("..")) {
+            File parent = currentDir.getParentFile();
+            if (parent != null) {
+                currentDir = parent;
+                loadFolder();
+            }
+            return;
+        }
+        File picked = new File(currentDir, selection);
+        if (picked.isDirectory()) {
+            currentDir = picked;
+            loadFolder();
+        } else if (picked.isFile()) {
+            fileNameField.setText(stripExt(picked.getName()));
+            String ext = getExt(picked.getName());
+            if (!ext.isEmpty()) extensionBox.setSelectedItem("." + ext);
+        }
     }
 
     private void loadFolder() {
         folderModel.clear();
         pathField.setText(currentDir.getAbsolutePath());
-        if (currentDir.getParentFile() != null) folderModel.addElement("📁 ..");
+        if (currentDir.getParentFile() != null) folderModel.addElement("..");
         File[] files = currentDir.listFiles();
-        if (files != null) {
-            java.util.Arrays.sort(files, (a, b) -> {
-                if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
-                return a.getName().compareToIgnoreCase(b.getName());
-            });
-            for (File f : files) {
-                if (f.isHidden()) continue;
-                folderModel.addElement(f.isDirectory() ? "📁 " + f.getName() : "📄 " + f.getName());
-            }
+        if (files == null) return;
+        java.util.Arrays.sort(files, (a, b) -> {
+            if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
+            return a.getName().compareToIgnoreCase(b.getName());
+        });
+        for (File file : files) {
+            if (file.isHidden()) continue;
+            folderModel.addElement(file.getName());
         }
     }
 
     private void doSave() {
         String name = fileNameField.getText().trim();
-        if (name.isEmpty()) { JOptionPane.showMessageDialog(this, "File name is required"); return; }
+        if (name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "File name is required.");
+            return;
+        }
         String ext = (String) extensionBox.getSelectedItem();
         if (!name.contains(".")) name += ext;
         selectedFile = new File(currentDir, name);
         if (selectedFile.exists()) {
-            int r = JOptionPane.showConfirmDialog(this, "\"" + name + "\" already exists.\nOverwrite?", "Confirm", JOptionPane.YES_NO_OPTION);
-            if (r != JOptionPane.YES_OPTION) return;
+            int choice = JOptionPane.showConfirmDialog(
+                this,
+                "\"" + name + "\" already exists.\nOverwrite it?",
+                "Confirm overwrite",
+                JOptionPane.YES_NO_OPTION);
+            if (choice != JOptionPane.YES_OPTION) return;
         }
         approved = true;
         dispose();
     }
 
-    private void browseFolder(JFrame parent, Theme theme) {
-        JFileChooser ch = new JFileChooser(currentDir);
-        ch.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        if (ch.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            currentDir = ch.getSelectedFile();
+    private void browseFolder(JFrame parent) {
+        JFileChooser chooser = new JFileChooser(currentDir);
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (chooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
+            currentDir = chooser.getSelectedFile();
             loadFolder();
         }
     }
 
-    private void styleTextField(JTextField tf, Color bg, Color fg, Color border) {
-        tf.setBackground(bg); tf.setForeground(fg); tf.setCaretColor(fg);
-        tf.setFont(new Font("Consolas", Font.PLAIN, 12));
-        tf.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(border),
-            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-    }
-
-    private JButton styledButton(String text, Color bg, Color fg) {
-        JButton b = new JButton(text);
-        b.setBackground(bg); b.setForeground(fg);
-        b.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        b.setFocusPainted(false); b.setBorderPainted(false);
-        b.setBorder(BorderFactory.createEmptyBorder(6, 14, 6, 14));
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        return b;
-    }
-
     private String stripExt(String name) {
-        int dot = name.lastIndexOf('.'); return dot > 0 ? name.substring(0, dot) : name;
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
+
     private String getExt(String name) {
-        int dot = name.lastIndexOf('.'); return dot > 0 ? name.substring(dot + 1) : "";
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(dot + 1) : "";
     }
 
     public File getSelectedFile() { return selectedFile; }

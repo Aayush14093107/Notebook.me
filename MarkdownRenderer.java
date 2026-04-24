@@ -1,5 +1,5 @@
 /**
- * MarkdownRenderer.java — Simple Markdown to HTML renderer for notebook.me v5.0.0
+ * MarkdownRenderer.java - Simple Markdown to HTML renderer for notebook.me v5.5
  * Supports: headings, bold, italic, code, links, images, tables, lists, blockquotes, hr
  */
 public class MarkdownRenderer {

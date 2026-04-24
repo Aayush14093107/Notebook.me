@@ -5,151 +5,191 @@ import java.io.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 
-// ════════════════════════════════════════════════════════
-//  Drawing Canvas Dialog — saves as PNG
-// ════════════════════════════════════════════════════════
 class DrawingDialog extends JDialog {
+    private final Theme theme;
+    private final File saveDir;
     private BufferedImage canvas;
     private Graphics2D g2d;
     private Color drawColor = Color.WHITE;
     private int brushSize = 3;
-    private int prevX = -1, prevY = -1;
+    private int prevX = -1;
+    private int prevY = -1;
     private File savedFile = null;
     private boolean isEraser = false;
+    private JPanel colorPreview;
 
     public DrawingDialog(JFrame parent, Theme theme, File saveDir) {
         super(parent, "Drawing Pad", true);
-        setSize(700, 550);
+        this.theme = theme;
+        this.saveDir = saveDir;
+        setSize(760, 600);
         setLocationRelativeTo(parent);
-        setLayout(new BorderLayout());
+        buildUI();
+    }
 
-        // Ensure drawings directory exists
+    private void buildUI() {
         if (!saveDir.exists()) saveDir.mkdirs();
 
-        canvas = new BufferedImage(680, 420, BufferedImage.TYPE_INT_ARGB);
+        GradientPanel root = new GradientPanel(
+            new BorderLayout(0, 8),
+            theme.getBackground(),
+            theme.getBackground(),
+            null,
+            0);
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setContentPane(root);
+
+        GradientPanel header = new GradientPanel(
+            new BorderLayout(),
+            ModernUI.panelColor(theme),
+            ModernUI.panelColor(theme),
+            ModernUI.hairline(theme),
+            ModernUI.RADIUS);
+        header.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        JPanel titleStack = new JPanel();
+        titleStack.setOpaque(false);
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        JLabel title = new JLabel("Drawing pad");
+        title.setFont(ModernUI.uiFont(Font.BOLD, 18f));
+        title.setForeground(theme.getForeground());
+        titleStack.add(title);
+        header.add(titleStack, BorderLayout.WEST);
+        root.add(header, BorderLayout.NORTH);
+
+        canvas = new BufferedImage(700, 430, BufferedImage.TYPE_INT_ARGB);
         g2d = canvas.createGraphics();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2d.setColor(new Color(30, 30, 35));
-        g2d.fillRect(0, 0, 680, 420);
+        g2d.setColor(ModernUI.editorColor(theme));
+        g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
 
         JPanel drawPanel = new JPanel() {
-            @Override protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                g.drawImage(canvas, 0, 0, null);
+            @Override protected void paintComponent(Graphics graphics) {
+                super.paintComponent(graphics);
+                graphics.drawImage(canvas, 0, 0, null);
             }
         };
-        drawPanel.setPreferredSize(new Dimension(680, 420));
-        drawPanel.setBackground(new Color(30, 30, 35));
-        drawPanel.setBorder(BorderFactory.createLineBorder(theme.getBorder(), 1));
-
+        drawPanel.setPreferredSize(new Dimension(canvas.getWidth(), canvas.getHeight()));
+        drawPanel.setBackground(ModernUI.editorColor(theme));
         drawPanel.addMouseListener(new MouseAdapter() {
-            public void mousePressed(MouseEvent e) { prevX = e.getX(); prevY = e.getY(); drawDot(e.getX(), e.getY()); drawPanel.repaint(); }
-            public void mouseReleased(MouseEvent e) { prevX = -1; prevY = -1; }
+            @Override public void mousePressed(MouseEvent e) {
+                prevX = e.getX();
+                prevY = e.getY();
+                drawDot(e.getX(), e.getY());
+                drawPanel.repaint();
+            }
+
+            @Override public void mouseReleased(MouseEvent e) {
+                prevX = -1;
+                prevY = -1;
+            }
         });
         drawPanel.addMouseMotionListener(new MouseMotionAdapter() {
-            public void mouseDragged(MouseEvent e) {
-                if (prevX != -1) {
-                    g2d.setColor(isEraser ? new Color(30, 30, 35) : drawColor);
-                    g2d.setStroke(new BasicStroke(brushSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    g2d.drawLine(prevX, prevY, e.getX(), e.getY());
-                    prevX = e.getX(); prevY = e.getY();
-                    drawPanel.repaint();
-                }
+            @Override public void mouseDragged(MouseEvent e) {
+                if (prevX == -1) return;
+                g2d.setColor(isEraser ? ModernUI.editorColor(theme) : drawColor);
+                g2d.setStroke(new BasicStroke(brushSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2d.drawLine(prevX, prevY, e.getX(), e.getY());
+                prevX = e.getX();
+                prevY = e.getY();
+                drawPanel.repaint();
             }
         });
 
-        // ── Toolbar ──
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        toolbar.setBackground(theme.getMenuBg());
-        toolbar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, theme.getBorder()));
+        JScrollPane canvasScroll = new JScrollPane(drawPanel);
+        ModernUI.styleScrollPane(canvasScroll, theme, ModernUI.editorColor(theme));
+        SurfacePanel canvasShell = new SurfacePanel(
+            new BorderLayout(),
+            ModernUI.panelColor(theme),
+            ModernUI.hairline(theme),
+            ModernUI.RADIUS);
+        canvasShell.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        canvasShell.add(canvasScroll, BorderLayout.CENTER);
+        root.add(canvasShell, BorderLayout.CENTER);
 
-        // Color button with preview
-        JButton colorBtn = makeBtn("Color", theme);
-        JPanel colorPreview = new JPanel();
+        SurfacePanel toolbar = new SurfacePanel(
+            new FlowLayout(FlowLayout.LEFT, 8, 8),
+            ModernUI.panelColor(theme),
+            ModernUI.hairline(theme),
+            ModernUI.RADIUS);
+        toolbar.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+
+        JButton colorBtn = button("Color", "secondary");
+        colorPreview = new JPanel();
         colorPreview.setPreferredSize(new Dimension(20, 20));
         colorPreview.setBackground(drawColor);
-        colorPreview.setBorder(BorderFactory.createLineBorder(theme.getBorder()));
+        colorPreview.setBorder(new RoundedBorder(ModernUI.hairline(theme), ModernUI.RADIUS, 1));
         colorBtn.addActionListener(e -> {
-            Color c = JColorChooser.showDialog(this, "Pick Draw Color", drawColor);
-            if (c != null) { drawColor = c; colorPreview.setBackground(c); isEraser = false; }
+            Color picked = JColorChooser.showDialog(this, "Pick draw color", drawColor);
+            if (picked != null) {
+                drawColor = picked;
+                colorPreview.setBackground(picked);
+                isEraser = false;
+            }
         });
 
-        // Brush size
-        JLabel sizeLabel = new JLabel("Size:");
+        JLabel sizeLabel = new JLabel("Brush");
         sizeLabel.setForeground(theme.getForeground());
-        sizeLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        sizeLabel.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
         JSpinner sizeSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 40, 1));
-        sizeSpinner.setPreferredSize(new Dimension(50, 24));
+        sizeSpinner.setPreferredSize(new Dimension(64, 36));
+        ModernUI.styleSpinner(sizeSpinner, theme);
         sizeSpinner.addChangeListener(e -> brushSize = (int) sizeSpinner.getValue());
 
-        // Eraser
-        JButton eraserBtn = makeBtn("Eraser", theme);
-        eraserBtn.addActionListener(e -> { isEraser = !isEraser; eraserBtn.setText(isEraser ? "[Eraser ON]" : "Eraser"); });
+        JButton eraserBtn = button("Eraser", "secondary");
+        eraserBtn.addActionListener(e -> {
+            isEraser = !isEraser;
+            eraserBtn.setText(isEraser ? "Eraser On" : "Eraser");
+        });
 
-        // Clear
-        JButton clearBtn = makeBtn("Clear", theme);
+        JButton clearBtn = button("Clear", "ghost");
         clearBtn.addActionListener(e -> {
-            g2d.setColor(new Color(30, 30, 35));
-            g2d.fillRect(0, 0, 680, 420);
+            g2d.setColor(ModernUI.editorColor(theme));
+            g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
             drawPanel.repaint();
         });
 
-        // Save & Insert
-        JButton saveBtn = new JButton("Save & Insert");
-        saveBtn.setBackground(theme.getAccent());
-        saveBtn.setForeground(new Color(15, 17, 21));
-        saveBtn.setFocusPainted(false);
-        saveBtn.setBorderPainted(false);
-        saveBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        saveBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        saveBtn.addActionListener(e -> {
-            // Save as PNG
-            String filename = "drawing_" + System.currentTimeMillis() + ".png";
-            File outFile = new File(saveDir, filename);
-            try {
-                ImageIO.write(canvas, "png", outFile);
-                savedFile = outFile;
-                dispose();
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Failed to save drawing:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        });
+        JButton saveBtn = button("Save & Insert", "primary");
+        saveBtn.addActionListener(e -> saveDrawing());
 
-        JButton cancelBtn = makeBtn("Cancel", theme);
+        JButton cancelBtn = button("Cancel", "ghost");
         cancelBtn.addActionListener(e -> dispose());
 
         toolbar.add(colorBtn);
         toolbar.add(colorPreview);
-        toolbar.add(Box.createHorizontalStrut(8));
+        toolbar.add(Box.createHorizontalStrut(10));
         toolbar.add(sizeLabel);
         toolbar.add(sizeSpinner);
-        toolbar.add(Box.createHorizontalStrut(8));
+        toolbar.add(Box.createHorizontalStrut(10));
         toolbar.add(eraserBtn);
         toolbar.add(clearBtn);
         toolbar.add(Box.createHorizontalStrut(20));
         toolbar.add(saveBtn);
         toolbar.add(cancelBtn);
+        root.add(toolbar, BorderLayout.SOUTH);
+    }
 
-        add(drawPanel, BorderLayout.CENTER);
-        add(toolbar, BorderLayout.SOUTH);
+    private JButton button(String text, String variant) {
+        JButton button = new JButton(text);
+        ModernUI.styleButton(button, theme, variant);
+        return button;
     }
 
     private void drawDot(int x, int y) {
-        g2d.setColor(isEraser ? new Color(30, 30, 35) : drawColor);
-        g2d.fillOval(x - brushSize/2, y - brushSize/2, brushSize, brushSize);
+        g2d.setColor(isEraser ? ModernUI.editorColor(theme) : drawColor);
+        g2d.fillOval(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
     }
 
-    private JButton makeBtn(String text, Theme theme) {
-        JButton b = new JButton(text);
-        b.setBackground(theme.getSecondary());
-        b.setForeground(theme.getForeground());
-        b.setFocusPainted(false);
-        b.setBorderPainted(false);
-        b.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        return b;
+    private void saveDrawing() {
+        String filename = "drawing_" + System.currentTimeMillis() + ".png";
+        File outFile = new File(saveDir, filename);
+        try {
+            ImageIO.write(canvas, "png", outFile);
+            savedFile = outFile;
+            dispose();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Failed to save drawing:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
-    /** Returns the saved PNG file, or null if cancelled */
     public File getSavedFile() { return savedFile; }
 }

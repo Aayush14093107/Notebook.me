@@ -1,14 +1,16 @@
 /**
- * notebook.me v5.0.0 — Feature-rich Java Notepad
+ * notebook.me v5.5 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.Rectangle2D;
 import java.awt.print.*;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.border.*;
 import javax.swing.event.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.text.*;
@@ -17,7 +19,8 @@ import javax.swing.undo.*;
 
 public class NotebookMe extends JFrame {
     private static final String APP_NAME = "notebook.me";
-    private static final String VERSION  = "5.0.0";
+    private static final String VERSION  = "6.0.0";
+    private static final int SIDEBAR_WIDTH = 280;
     private static int instanceCount = 0;
     private Theme currentTheme;
     private boolean wordWrap = true;
@@ -49,16 +52,21 @@ public class NotebookMe extends JFrame {
     private JSplitPane mdSplitPane;
     private JEditorPane mdPreviewPane;
     private boolean mdPreviewVisible = false;
+    private GradientPanel rootPanel;
 
     static class TabData {
         JTextArea textArea;
         JPanel editorPanel;
         LineNumberPanel linePanel;
+        JScrollPane scrollPane;
         UndoManager undoManager;
         File file;
         boolean modified;
         String lastSaved;
         boolean pinned;
+        JPanel tabHeader;
+        JLabel tabLabel;
+        JButton closeButton;
         List<String> versionHistory;
         javax.swing.Timer selfDestructTimer;
         long selfDestructTime;
@@ -71,209 +79,418 @@ public class NotebookMe extends JFrame {
     }
 
     static class LineNumberPanel extends JPanel {
-        private JTextArea textArea;
+        private final JTextArea textArea;
         private Theme theme;
-        LineNumberPanel(JTextArea ta, Theme t) { this.textArea = ta; this.theme = t; setPreferredSize(new Dimension(48, 0)); }
-        void setTheme(Theme t) { this.theme = t; repaint(); }
+        private final DocumentListener documentListener = new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { queueRefresh(); }
+            @Override public void removeUpdate(DocumentEvent e) { queueRefresh(); }
+            @Override public void changedUpdate(DocumentEvent e) { queueRefresh(); }
+        };
+
+        LineNumberPanel(JTextArea ta, Theme t) {
+            this.textArea = ta;
+            this.theme = t;
+            setOpaque(false);
+
+            textArea.getDocument().addDocumentListener(documentListener);
+            textArea.addCaretListener(e -> SwingUtilities.invokeLater(this::repaint));
+            textArea.addComponentListener(new ComponentAdapter() {
+                @Override public void componentResized(ComponentEvent e) { queueRefresh(); }
+                @Override public void componentMoved(ComponentEvent e) { repaint(); }
+            });
+            textArea.addPropertyChangeListener("font", e -> queueRefresh());
+            textArea.addPropertyChangeListener("document", e -> {
+                if (e.getOldValue() instanceof Document) {
+                    ((Document) e.getOldValue()).removeDocumentListener(documentListener);
+                }
+                if (e.getNewValue() instanceof Document) {
+                    ((Document) e.getNewValue()).addDocumentListener(documentListener);
+                }
+                queueRefresh();
+            });
+
+            refresh();
+        }
+
+        void setTheme(Theme t) {
+            this.theme = t;
+            repaint();
+        }
+
+        void refreshMetrics() {
+            refresh();
+        }
+
+        private void queueRefresh() {
+            SwingUtilities.invokeLater(this::refresh);
+        }
+
+        private void refresh() {
+            Font gutterFont = ModernUI.monoFont(Font.PLAIN, Math.max(11f, textArea.getFont().getSize2D() - 1f));
+            FontMetrics fm = getFontMetrics(gutterFont);
+            int digits = Math.max(2, String.valueOf(textArea.getLineCount()).length());
+            int width = Math.max(48, fm.charWidth('0') * digits + 24);
+            int height = Math.max(textArea.getPreferredSize().height, textArea.getHeight());
+            Dimension size = new Dimension(width, height);
+
+            if (!size.equals(getPreferredSize())) {
+                setPreferredSize(size);
+                revalidate();
+            }
+            repaint();
+        }
+
         @Override protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            setBackground(theme.getMenuBg());
-            Graphics2D g2 = (Graphics2D) g;
+            Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g2.setFont(new Font("Consolas", Font.PLAIN, textArea.getFont().getSize() - 1));
-            g2.setColor(new Color(theme.getForeground().getRed(), theme.getForeground().getGreen(), theme.getForeground().getBlue(), 100));
-            int lineHeight = textArea.getFontMetrics(textArea.getFont()).getHeight();
-            Rectangle clip = g2.getClipBounds();
-            int startLine = clip.y / lineHeight;
-            int endLine = (clip.y + clip.height) / lineHeight + 1;
-            int totalLines = textArea.getLineCount();
+            g2.setColor(ModernUI.mix(theme.getMenuBg(), theme.getBackground(), 0.2f));
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            g2.setColor(ModernUI.hairline(theme));
+            g2.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight());
+
+            Font gutterFont = ModernUI.monoFont(Font.PLAIN, Math.max(11f, textArea.getFont().getSize2D() - 1f));
+            g2.setFont(gutterFont);
             FontMetrics fm = g2.getFontMetrics();
-            for (int i = startLine; i <= Math.min(endLine, totalLines - 1); i++) {
+            FontMetrics textMetrics = textArea.getFontMetrics(textArea.getFont());
+            Element root = textArea.getDocument().getDefaultRootElement();
+            int activeLine = -1;
+            int startLine = 0;
+            int endLine = Math.max(0, root.getElementCount() - 1);
+            try {
+                activeLine = textArea.getLineOfOffset(textArea.getCaretPosition());
+                Rectangle visible = textArea.getVisibleRect();
+                int modelX = Math.max(0, textArea.getInsets().left + 1);
+                int startOffset = textArea.viewToModel2D(new Point(modelX, visible.y));
+                int endOffset = textArea.viewToModel2D(new Point(modelX, visible.y + visible.height));
+                startLine = root.getElementIndex(startOffset);
+                endLine = root.getElementIndex(endOffset);
+            } catch (BadLocationException ignored) {}
+
+            for (int i = startLine; i <= Math.min(endLine, root.getElementCount() - 1); i++) {
+                Rectangle2D lineRect;
+                try {
+                    lineRect = textArea.modelToView2D(root.getElement(i).getStartOffset());
+                } catch (BadLocationException ignored) {
+                    continue;
+                }
+                if (lineRect == null) {
+                    continue;
+                }
+
                 String num = String.valueOf(i + 1);
-                int x = getWidth() - fm.stringWidth(num) - 8;
-                int y = (i + 1) * lineHeight - 4;
+                boolean active = i == activeLine;
+                int boxY = (int) Math.round(lineRect.getY()) + 2;
+                int boxHeight = Math.max(16, (int) Math.round(lineRect.getHeight()) - 4);
+                if (active) {
+                    g2.setColor(ModernUI.withAlpha(theme.getAccent(), 105));
+                    g2.fillRoundRect(6, boxY, getWidth() - 12, boxHeight, 8, 8);
+                    g2.setColor(ModernUI.contrastText(theme.getAccent()));
+                } else {
+                    g2.setColor(ModernUI.withAlpha(theme.getForeground(), 110));
+                }
+                int x = getWidth() - fm.stringWidth(num) - 10;
+                int y = (int) Math.round(lineRect.getY()) + textMetrics.getAscent();
                 g2.drawString(num, x, y);
             }
+            g2.dispose();
         }
     }
 
     public NotebookMe() {
         instanceCount++;
         currentTheme = new InkTheme();
-        notebookDir = new File(System.getProperty("user.home"), ".notebookme");
+        notebookDir = resolveNotebookDir();
         if (!notebookDir.exists()) notebookDir.mkdirs();
         initLookAndFeel(); initComponents(); initMenuBar(); initStatusBar(); initAutoSave(); initWindowEvents();
-        setTitle(APP_NAME + "  ·  untitled");
+        setTitle(APP_NAME + " - untitled");
         setSize(1100, 750); setMinimumSize(new Dimension(700, 500));
         setIconImage(createAppIcon());
         setLocationRelativeTo(null); setDefaultCloseOperation(DO_NOTHING_ON_CLOSE); setVisible(true);
         getCurrentTextArea().requestFocusInWindow(); showWelcome();
     }
 
-    private void initLookAndFeel() {
-        try {
-            // Use system (Windows) look and feel for modern file dialogs
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception ignored) {}
+    private File resolveNotebookDir() {
+        String explicitDir = System.getProperty("notebookme.dataDir");
+        if (explicitDir != null && !explicitDir.trim().isEmpty()) {
+            return new File(explicitDir.trim());
+        }
+
+        if ("true".equalsIgnoreCase(System.getProperty("notebookme.portable"))) {
+            return new File(resolveApplicationDir(), "data");
+        }
+
+        return new File(System.getProperty("user.home"), ".notebookme");
     }
 
-    /** Programmatically draw the Notebook.Me logo icon — 128×128 */
+    private File resolveApplicationDir() {
+        try {
+            File source = new File(NotebookMe.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            return source.isFile() ? source.getParentFile() : source;
+        } catch (Exception ignored) {
+            return new File(".").getAbsoluteFile();
+        }
+    }
+
+    private void initLookAndFeel() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
+        } catch (Exception ignored) {}
+        ModernUI.apply(currentTheme);
+    }
+
+    /** Load the Notebook.Me logo icon from resources or file */
     private java.awt.Image createAppIcon() {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/logo.png");
+            if (is != null) {
+                return javax.imageio.ImageIO.read(is);
+            }
+            java.io.File file = new java.io.File("logo.png");
+            if (file.exists()) {
+                return javax.imageio.ImageIO.read(file);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        // Fallback to a simple placeholder if logo.png is not found
         int s = 128;
         java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(s, s, java.awt.image.BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        // Notebook body — dark charcoal
         g.setColor(new Color(50, 50, 50));
         g.fillRoundRect(12, 8, 104, 112, 18, 18);
-        // Lighter inner area
-        g.setColor(new Color(62, 62, 62));
-        g.fillRoundRect(20, 16, 88, 96, 12, 12);
-        // Two horizontal white lines
-        g.setColor(new Color(200, 200, 200));
-        g.fillRoundRect(40, 66, 48, 3, 3, 3);
-        g.fillRoundRect(40, 78, 48, 3, 3, 3);
-        // Gold text "N.Me"
         g.setColor(new Color(195, 170, 120));
         g.setFont(new Font("Georgia", Font.BOLD, 22));
         g.drawString("N.Me", 32, 54);
-        // Bookmark ribbon
-        g.setColor(new Color(80, 65, 50));
-        int[] bx = {88, 102, 102, 95, 88};
-        int[] by = {100, 100, 128, 115, 128};
-        g.fillPolygon(bx, by, 5);
         g.dispose();
         return img;
     }
 
     private void initComponents() {
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().setBackground(currentTheme.getBackground());
+        rootPanel = new GradientPanel(
+            new BorderLayout(0, 8),
+            currentTheme.getBackground(),
+            currentTheme.getBackground(),
+            null,
+            0);
+        rootPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setContentPane(rootPanel);
+
         tabbedPane = new JTabbedPane(JTabbedPane.TOP);
         tabbedPane.setBackground(currentTheme.getMenuBg());
         tabbedPane.setForeground(currentTheme.getForeground());
-        tabbedPane.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        tabbedPane.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        tabbedPane.setBorder(BorderFactory.createEmptyBorder());
+        tabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        tabbedPane.setUI(new ModernTabbedPaneUI(currentTheme));
+        tabbedPane.setOpaque(false);
         tabbedPane.addChangeListener(e -> onTabChanged());
         addNewTab("untitled", null);
-        rootNode = new DefaultMutableTreeNode("📓 Notebooks");
+
+        rootNode = new DefaultMutableTreeNode("Notebook Library");
         treeModel = new DefaultTreeModel(rootNode);
         folderTree = new JTree(treeModel);
-        folderTree.setBackground(currentTheme.getMenuBg());
+        folderTree.putClientProperty("JTree.lineStyle", "None");
+        folderTree.setBackground(ModernUI.panelColor(currentTheme));
         folderTree.setForeground(currentTheme.getForeground());
-        folderTree.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 13));
-        folderTree.setRowHeight(28);
-        folderTree.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        folderTree.setFont(ModernUI.uiFont(Font.PLAIN, 13f));
+        folderTree.setRowHeight(30);
+        folderTree.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         folderTree.setCellRenderer(new ModernTreeRenderer());
         folderTree.addMouseListener(new MouseAdapter() { public void mouseClicked(MouseEvent e) { if (e.getClickCount()==2) openFromTree(); } });
         loadFolderTree();
-        JScrollPane treeScroll = new JScrollPane(folderTree);
-        treeScroll.setPreferredSize(new Dimension(210, 0));
-        treeScroll.setBorder(BorderFactory.createMatteBorder(0,0,0,1,currentTheme.getBorder()));
-        treeScroll.getViewport().setBackground(currentTheme.getMenuBg());
-        JPanel sidePanel = new JPanel(new BorderLayout());
-        sidePanel.setBackground(currentTheme.getMenuBg());
-        // Sidebar header label
-        JLabel sideHeader = new JLabel("  📚  My Notebooks"); sideHeader.setFont(new Font("Segoe UI Emoji", Font.BOLD, 12));
-        sideHeader.setForeground(currentTheme.getAccent()); sideHeader.setBorder(BorderFactory.createEmptyBorder(8, 4, 4, 0));
-        JPanel sideButtons = new JPanel(new GridLayout(1, 3, 4, 0));
-        sideButtons.setBackground(currentTheme.getMenuBg());
-        sideButtons.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-        JButton af = smallBtn("📁 Folder"); JButton an = smallBtn("📝 Note"); JButton dl = smallBtn("🗑️ Delete");
-        af.addActionListener(e -> createFolder()); an.addActionListener(e -> createNoteInFolder()); dl.addActionListener(e -> deleteFromTree());
-        sideButtons.add(af); sideButtons.add(an); sideButtons.add(dl);
-        JPanel sideTopPanel = new JPanel(new BorderLayout());
-        sideTopPanel.setBackground(currentTheme.getMenuBg());
-        sideTopPanel.add(sideHeader, BorderLayout.NORTH);
-        sideTopPanel.add(sideButtons, BorderLayout.SOUTH);
-        sidePanel.add(sideTopPanel, BorderLayout.NORTH);
-        sidePanel.add(treeScroll, BorderLayout.CENTER);
-        JPanel centerPanel = new JPanel(new BorderLayout());
-        centerPanel.setBackground(currentTheme.getBackground());
-        centerPanel.add(buildTopStrip(), BorderLayout.NORTH);
-        centerPanel.add(tabbedPane, BorderLayout.CENTER);
-        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidePanel, centerPanel);
-        splitPane.setDividerLocation(210); splitPane.setDividerSize(3); splitPane.setBorder(null);
-        getContentPane().add(splitPane, BorderLayout.CENTER);
+
+        rebuildWorkspaceLayout();
     }
 
     private JButton smallBtn(String text) {
-        JButton b = new JButton(text); b.setFont(new Font("Segoe UI Emoji",Font.PLAIN,11));
-        b.setBackground(currentTheme.getSecondary()); b.setForeground(currentTheme.getForeground());
-        b.setFocusPainted(false); b.setBorderPainted(false);
-        b.setBorder(BorderFactory.createEmptyBorder(6, 4, 6, 4));
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)); return b;
+        JButton button = new JButton(text);
+        button.setFont(ModernUI.uiFont(Font.BOLD, 11f));
+        ModernUI.styleButton(button, currentTheme, "secondary");
+        return button;
+    }
+
+    private JPanel buildSidebarPanel() {
+        SurfacePanel sidebar = new SurfacePanel(
+            new BorderLayout(0, 10),
+            ModernUI.panelColor(currentTheme),
+            ModernUI.hairline(currentTheme),
+            0);
+        sidebar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 0, 1, ModernUI.hairline(currentTheme)),
+            BorderFactory.createEmptyBorder(12, 12, 12, 12)));
+        sidebar.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
+
+        JPanel header = ModernUI.transparentPanel(new BorderLayout(0, 10));
+
+        JPanel titleBlock = ModernUI.transparentPanel(new BorderLayout(0, 6));
+        JLabel eyebrow = new JLabel("WORKSPACE");
+        eyebrow.setFont(ModernUI.uiFont(Font.BOLD, 11f));
+        eyebrow.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 135));
+        JLabel sideHeader = new JLabel("Library");
+        sideHeader.setFont(ModernUI.uiFont(Font.BOLD, 17f));
+        sideHeader.setForeground(currentTheme.getForeground());
+        titleBlock.add(eyebrow, BorderLayout.NORTH);
+        titleBlock.add(sideHeader, BorderLayout.CENTER);
+
+        JPanel sideButtons = new JPanel(new GridLayout(3, 1, 0, 6));
+        sideButtons.setOpaque(false);
+        JButton addFolder = smallBtn("New Folder");
+        JButton addNote = smallBtn("New Note");
+        JButton deleteItem = smallBtn("Delete");
+        addFolder.setIcon(UIManager.getIcon("FileChooser.newFolderIcon"));
+        addNote.setIcon(UIManager.getIcon("FileView.fileIcon"));
+        deleteItem.setIcon(UIManager.getIcon("InternalFrame.closeIcon"));
+        ModernUI.styleButton(deleteItem, currentTheme, "danger");
+        addFolder.addActionListener(e -> createFolder());
+        addNote.addActionListener(e -> createNoteInFolder());
+        deleteItem.addActionListener(e -> deleteFromTree());
+        sideButtons.add(addFolder);
+        sideButtons.add(addNote);
+        sideButtons.add(deleteItem);
+
+        header.add(titleBlock, BorderLayout.CENTER);
+        header.add(sideButtons, BorderLayout.SOUTH);
+
+        JScrollPane treeScroll = new JScrollPane(folderTree);
+        ModernUI.styleScrollPane(treeScroll, currentTheme, ModernUI.panelColor(currentTheme));
+
+        SurfacePanel treeShell = new SurfacePanel(
+            new BorderLayout(),
+            ModernUI.mix(currentTheme.getBackground(), currentTheme.getMenuBg(), 0.14f),
+            ModernUI.hairline(currentTheme),
+            ModernUI.RADIUS);
+        treeShell.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+        treeShell.add(treeScroll, BorderLayout.CENTER);
+
+        sidebar.add(header, BorderLayout.NORTH);
+        sidebar.add(treeShell, BorderLayout.CENTER);
+        return sidebar;
+    }
+
+    private void rebuildWorkspaceLayout() {
+        int dividerLocation = splitPane != null ? splitPane.getDividerLocation() : SIDEBAR_WIDTH;
+        JPanel sidebar = buildSidebarPanel();
+
+        JPanel centerPanel = ModernUI.transparentPanel(new BorderLayout(0, 8));
+        centerPanel.add(buildTopStrip(), BorderLayout.NORTH);
+
+        SurfacePanel editorShell = new SurfacePanel(
+            new BorderLayout(),
+            ModernUI.panelColor(currentTheme),
+            ModernUI.hairline(currentTheme),
+            ModernUI.RADIUS);
+        editorShell.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        tabbedPane.setUI(new ModernTabbedPaneUI(currentTheme));
+        tabbedPane.setOpaque(false);
+        editorShell.add(tabbedPane, BorderLayout.CENTER);
+        centerPanel.add(editorShell, BorderLayout.CENTER);
+
+        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebar, centerPanel);
+        ModernUI.styleSplitPane(splitPane, currentTheme);
+        splitPane.setResizeWeight(0.0);
+
+        if (sidebarVisible) {
+            splitPane.getLeftComponent().setVisible(true);
+            splitPane.setDividerSize(1);
+            splitPane.setDividerLocation(dividerLocation > 0 ? dividerLocation : SIDEBAR_WIDTH);
+        } else {
+            splitPane.getLeftComponent().setVisible(false);
+            splitPane.setDividerSize(0);
+            splitPane.setDividerLocation(0);
+        }
+
+        if (rootPanel != null) {
+            rootPanel.removeAll();
+            rootPanel.add(splitPane, BorderLayout.CENTER);
+            if (statusBar != null) rootPanel.add(statusBar, BorderLayout.SOUTH);
+            rootPanel.revalidate();
+            rootPanel.repaint();
+        }
     }
 
     private JPanel buildTopStrip() {
-        JPanel strip = new JPanel(new BorderLayout());
-        strip.setBackground(currentTheme.getMenuBg());
-        strip.setBorder(BorderFactory.createMatteBorder(0,0,1,0,currentTheme.getBorder()));
-        strip.setPreferredSize(new Dimension(0, 36));
-        // Sidebar toggle button — painted triangle arrows
-        sideToggleBtn = new JButton("\u25C0") {
-            @Override protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getForeground());
-                int w=getWidth(), h=getHeight(), sz=8;
-                if (sidebarVisible) { // left arrow ◀
-                    int[] xs={w/2+sz/2, w/2-sz/2, w/2+sz/2};
-                    int[] ys={h/2-sz, h/2, h/2+sz};
-                    g2.fillPolygon(xs, ys, 3);
-                } else { // right arrow ▶
-                    int[] xs={w/2-sz/2, w/2+sz/2, w/2-sz/2};
-                    int[] ys={h/2-sz, h/2, h/2+sz};
-                    g2.fillPolygon(xs, ys, 3);
-                }
-            }
-        };
-        sideToggleBtn.setText(""); // painted, no text
-        sideToggleBtn.setPreferredSize(new Dimension(28, 28));
-        sideToggleBtn.setForeground(currentTheme.getAccent()); sideToggleBtn.setBackground(currentTheme.getMenuBg());
-        sideToggleBtn.setFocusPainted(false); sideToggleBtn.setBorderPainted(false); sideToggleBtn.setContentAreaFilled(false);
-        sideToggleBtn.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
-        sideToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        SurfacePanel strip = new SurfacePanel(
+            new BorderLayout(8, 0),
+            ModernUI.panelColor(currentTheme),
+            ModernUI.hairline(currentTheme),
+            ModernUI.RADIUS);
+        strip.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        strip.setPreferredSize(new Dimension(0, 52));
+
+        JPanel leftStrip = ModernUI.transparentPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        sideToggleBtn = new JButton(sidebarVisible ? "<" : ">");
+        sideToggleBtn.setPreferredSize(new Dimension(34, 34));
+        sideToggleBtn.setFont(ModernUI.uiFont(Font.BOLD, 14f));
+        ModernUI.styleButton(sideToggleBtn, currentTheme, "ghost");
         sideToggleBtn.setToolTipText("Toggle sidebar");
         sideToggleBtn.addActionListener(e -> animateSidebar());
-        JPanel leftStrip = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); leftStrip.setOpaque(false);
         leftStrip.add(sideToggleBtn);
-        JLabel logo = new JLabel("  notebook.me"); logo.setFont(new Font("Georgia",Font.ITALIC,13)); logo.setForeground(currentTheme.getAccent());
-        leftStrip.add(logo);
+
+        JLabel brand = new JLabel("notebook.me");
+        brand.setFont(ModernUI.uiFont(Font.BOLD, 15f));
+        brand.setForeground(currentTheme.getForeground());
+        leftStrip.add(brand);
         strip.add(leftStrip, BorderLayout.WEST);
-        JPanel sp = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4)); sp.setBackground(currentTheme.getMenuBg());
-        searchField = new JTextField(18); searchField.setFont(new Font("Consolas",Font.PLAIN,12));
-        searchField.setBackground(currentTheme.getSecondary()); searchField.setForeground(currentTheme.getForeground());
-        searchField.setCaretColor(currentTheme.getAccent());
-        searchField.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(currentTheme.getBorder()), BorderFactory.createEmptyBorder(4,6,4,6)));
-        // Placeholder simulation
-        searchField.setText("Search..."); searchField.setForeground(new Color(currentTheme.getForeground().getRed(), currentTheme.getForeground().getGreen(), currentTheme.getForeground().getBlue(), 120));
-        searchField.addFocusListener(new FocusAdapter(){
-            public void focusGained(FocusEvent e){ if(searchField.getText().equals("Search...")){ searchField.setText(""); searchField.setForeground(currentTheme.getForeground()); }}
-            public void focusLost(FocusEvent e){ if(searchField.getText().isEmpty()){ searchField.setText("Search..."); searchField.setForeground(new Color(currentTheme.getForeground().getRed(),currentTheme.getForeground().getGreen(),currentTheme.getForeground().getBlue(),120)); }}
+
+        searchField = new JTextField();
+        ModernUI.styleTextField(searchField, currentTheme, false);
+        searchField.setMinimumSize(new Dimension(80, 34));
+        searchField.setPreferredSize(new Dimension(220, 34));
+        searchField.setText("Search notes");
+        searchField.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 140));
+        searchField.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) {
+                if (searchField.getText().equals("Search notes")) {
+                    searchField.setText("");
+                    searchField.setForeground(currentTheme.getForeground());
+                }
+            }
+            @Override public void focusLost(FocusEvent e) {
+                if (searchField.getText().isEmpty()) {
+                    searchField.setText("Search notes");
+                    searchField.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 140));
+                }
+            }
         });
-        searchField.setToolTipText("Quick Search (Enter)"); searchField.addActionListener(e -> quickSearch());
-        JButton sb = new JButton("Search");
-        sb.setFont(new Font("Segoe UI",Font.BOLD,11));
-        sb.setBackground(currentTheme.getAccent()); sb.setForeground(currentTheme.getBackground());
-        sb.setFocusPainted(false); sb.setBorderPainted(false);
-        sb.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
-        sb.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        sb.addActionListener(e -> quickSearch());
-        sp.add(searchField); sp.add(sb); strip.add(sp, BorderLayout.EAST);
+        searchField.setToolTipText("Quick Search (Enter)");
+        searchField.addActionListener(e -> quickSearch());
+        strip.add(searchField, BorderLayout.CENTER);
+
+        JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        actionRow.setOpaque(false);
+        JButton newBtn = new JButton("New");
+        JButton openBtn = new JButton("Open");
+        JButton saveBtn = new JButton("Save");
+        Dimension buttonSize = new Dimension(60, 34);
+        newBtn.setPreferredSize(buttonSize);
+        openBtn.setPreferredSize(buttonSize);
+        saveBtn.setPreferredSize(buttonSize);
+        ModernUI.styleButton(newBtn, currentTheme, "primary");
+        ModernUI.styleButton(openBtn, currentTheme, "secondary");
+        ModernUI.styleButton(saveBtn, currentTheme, "secondary");
+        newBtn.addActionListener(e -> addNewTab("untitled", null));
+        openBtn.addActionListener(e -> openFile());
+        saveBtn.addActionListener(e -> { TabData td = currentTab(); if (td != null) saveTabFile(td); });
+
+        actionRow.add(newBtn);
+        actionRow.add(openBtn);
+        actionRow.add(saveBtn);
+
+        strip.add(actionRow, BorderLayout.EAST);
         return strip;
     }
 
     private TabData addNewTab(String title, File file) {
         TabData td = new TabData(); td.file = file;
         td.textArea = new JTextArea(); td.textArea.setLineWrap(wordWrap); td.textArea.setWrapStyleWord(true); td.textArea.setTabSize(4);
-        td.textArea.setBackground(currentTheme.getBackground());
+        td.textArea.setBackground(ModernUI.editorColor(currentTheme));
         td.textArea.setForeground(fontColor != null ? fontColor : currentTheme.getForeground());
-        td.textArea.setCaretColor(currentTheme.getAccent()); td.textArea.setSelectionColor(currentTheme.getAccent().darker());
-        td.textArea.setSelectedTextColor(currentTheme.getBackground());
+        td.textArea.setCaretColor(currentTheme.getAccent()); td.textArea.setSelectionColor(ModernUI.withAlpha(currentTheme.getAccent(), 120));
+        td.textArea.setSelectedTextColor(currentTheme.getForeground());
         td.textArea.setFont(new Font(fontFamily, Font.PLAIN, fontSize));
-        td.textArea.setBorder(BorderFactory.createEmptyBorder(12,12,12,24));
+        td.textArea.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 22));
         td.textArea.getDocument().addUndoableEditListener(e -> td.undoManager.addEdit(e.getEdit()));
         td.textArea.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { onTextChange(td); }
@@ -287,22 +504,35 @@ public class NotebookMe extends JFrame {
             }
         });
         td.linePanel = new LineNumberPanel(td.textArea, currentTheme);
-        td.editorPanel = new JPanel(new BorderLayout()); td.editorPanel.add(td.linePanel, BorderLayout.WEST);
-        JScrollPane scroll = new JScrollPane(td.textArea); scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.getVerticalScrollBar().setBackground(currentTheme.getBackground());
-        scroll.getVerticalScrollBar().setUI(new SlimScrollBarUI(currentTheme));
-        scroll.getViewport().addChangeListener(e -> td.linePanel.repaint());
-        td.editorPanel.add(scroll, BorderLayout.CENTER); td.linePanel.setVisible(showLineNumbers);
+        td.textArea.addCaretListener(e -> td.linePanel.repaint());
+        td.editorPanel = ModernUI.transparentPanel(new BorderLayout());
+        td.scrollPane = new JScrollPane(td.textArea);
+        ModernUI.styleScrollPane(td.scrollPane, currentTheme, ModernUI.editorColor(currentTheme));
+        td.scrollPane.getViewport().addChangeListener(e -> td.linePanel.repaint());
+        td.editorPanel.add(td.scrollPane, BorderLayout.CENTER);
+        applyLineNumberVisibility(td);
         tabs.add(td); tabbedPane.addTab(title, td.editorPanel);
         int idx = tabbedPane.getTabCount() - 1;
-        JPanel tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT,4,0)); tabHeader.setOpaque(false);
-        JLabel tabLabel = new JLabel(title); tabLabel.setForeground(Color.BLACK); tabLabel.setFont(new Font("Segoe UI",Font.PLAIN,11));
-        JButton closeBtn = new JButton("x"); closeBtn.setFont(new Font("Segoe UI",Font.BOLD,11));
-        closeBtn.setForeground(Color.BLACK); closeBtn.setBorder(BorderFactory.createEmptyBorder(0,4,0,0));
-        closeBtn.setContentAreaFilled(false); closeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        closeBtn.addActionListener(e -> closeTab(tabs.indexOf(td)));
-        tabHeader.add(tabLabel); tabHeader.add(closeBtn);
-        tabbedPane.setTabComponentAt(idx, tabHeader); tabbedPane.setSelectedIndex(idx);
+        td.tabHeader = ModernUI.transparentPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        td.tabLabel = new JLabel(title);
+        td.tabLabel.setForeground(currentTheme.getForeground());
+        td.tabLabel.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        td.closeButton = new JButton("x");
+        td.closeButton.setFont(ModernUI.uiFont(Font.PLAIN, 14f));
+        td.closeButton.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 120));
+        td.closeButton.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        td.closeButton.setContentAreaFilled(false);
+        td.closeButton.setFocusPainted(false);
+        td.closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        td.closeButton.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) { td.closeButton.setForeground(new Color(220, 84, 84)); }
+            public void mouseExited(MouseEvent e) { td.closeButton.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 120)); }
+        });
+        td.closeButton.addActionListener(e -> closeTab(tabs.indexOf(td)));
+        td.tabHeader.add(td.tabLabel);
+        td.tabHeader.add(td.closeButton);
+        tabbedPane.setTabComponentAt(idx, td.tabHeader);
+        tabbedPane.setSelectedIndex(idx);
         return td;
     }
 
@@ -319,9 +549,25 @@ public class NotebookMe extends JFrame {
     private JTextArea getCurrentTextArea() { TabData td=currentTab(); return td!=null?td.textArea:tabs.get(0).textArea; }
     private void onTabChanged() { updateStatus(); updateCaretStatus(); }
 
+    private void applyLineNumberVisibility(TabData td) {
+        if (td == null || td.scrollPane == null || td.linePanel == null) return;
+        td.scrollPane.setRowHeaderView(showLineNumbers ? td.linePanel : null);
+        if (td.scrollPane.getRowHeader() != null) {
+            td.scrollPane.getRowHeader().setOpaque(false);
+        }
+        td.linePanel.setVisible(showLineNumbers);
+        if (showLineNumbers) td.linePanel.refreshMetrics();
+        td.scrollPane.revalidate();
+        td.scrollPane.repaint();
+    }
+
     private void initMenuBar() {
-        menuBar = new JMenuBar(); menuBar.setBackground(currentTheme.getMenuBg());
-        menuBar.setBorder(BorderFactory.createMatteBorder(0,0,1,0,currentTheme.getBorder()));
+        menuBar = new JMenuBar();
+        menuBar.setBackground(currentTheme.getMenuBg());
+        menuBar.setOpaque(true);
+        menuBar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, ModernUI.hairline(currentTheme)),
+            BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         menuBar.add(buildFileMenu()); menuBar.add(buildEditMenu()); menuBar.add(buildViewMenu());
         menuBar.add(buildFormatMenu()); menuBar.add(buildInsertMenu()); menuBar.add(buildToolsMenu());
         menuBar.add(buildSettingsMenu()); menuBar.add(buildThemeMenu()); menuBar.add(buildHelpMenu()); setJMenuBar(menuBar);
@@ -380,8 +626,14 @@ public class NotebookMe extends JFrame {
         JCheckBoxMenuItem sb=new JCheckBoxMenuItem("Sidebar",sidebarVisible); sci(sb);
         zi.addActionListener(e->changeFontSize(2)); zo.addActionListener(e->changeFontSize(-2)); zr.addActionListener(e->{fontSize=15;applyFontToAll();});
         wr.addActionListener(e->{wordWrap=wr.isSelected();for(TabData td:tabs){td.textArea.setLineWrap(wordWrap);td.textArea.setWrapStyleWord(wordWrap);}});
-        ln.addActionListener(e->{showLineNumbers=ln.isSelected();for(TabData td:tabs)td.linePanel.setVisible(showLineNumbers);});
-        sb.addActionListener(e->{sidebarVisible=sb.isSelected();splitPane.getLeftComponent().setVisible(sidebarVisible);splitPane.setDividerSize(sidebarVisible?3:0);});
+        ln.addActionListener(e->{showLineNumbers=ln.isSelected();for(TabData td:tabs)applyLineNumberVisibility(td);});
+        sb.addActionListener(e->{
+            sidebarVisible=sb.isSelected();
+            splitPane.getLeftComponent().setVisible(sidebarVisible);
+            splitPane.setDividerSize(sidebarVisible ? 1 : 0);
+            if (sideToggleBtn != null) sideToggleBtn.setText(sidebarVisible ? "<" : ">");
+            if (sidebarVisible && splitPane.getDividerLocation() == 0) splitPane.setDividerLocation(SIDEBAR_WIDTH);
+        });
         // Markdown preview
         JCheckBoxMenuItem mp=new JCheckBoxMenuItem("Markdown Preview (Ctrl+M)",false); sci(mp);
         mp.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_M,InputEvent.CTRL_DOWN_MASK));
@@ -458,20 +710,61 @@ public class NotebookMe extends JFrame {
     }
 
     private void initStatusBar() {
-        statusBar=new JPanel(new BorderLayout()); statusBar.setBackground(currentTheme.getStatusBg());
-        statusBar.setBorder(BorderFactory.createMatteBorder(1,0,0,0,currentTheme.getBorder()));
-        statusBar.setPreferredSize(new Dimension(0,28));
-        Font sf=new Font("Consolas",Font.PLAIN,11);
-        Color sfg=new Color(currentTheme.getForeground().getRed(),currentTheme.getForeground().getGreen(),currentTheme.getForeground().getBlue(),160);
-        statusLeft=new JLabel("  Ln 1, Col 1"); statusMid=new JLabel("0 words",JLabel.CENTER);
-        statusRight=new JLabel("v"+VERSION+"  ");
-        lastEditedLabel=new JLabel("  ");
-        lastEditedLabel.setFont(sf); lastEditedLabel.setForeground(sfg);
-        for(JLabel l:new JLabel[]{statusLeft,statusMid,statusRight}){l.setFont(sf);l.setForeground(sfg);}
-        JPanel rightPanel=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,2)); rightPanel.setOpaque(false);
-        rightPanel.add(lastEditedLabel); rightPanel.add(statusRight);
-        statusBar.add(statusLeft,BorderLayout.WEST); statusBar.add(statusMid,BorderLayout.CENTER); statusBar.add(rightPanel,BorderLayout.EAST);
-        getContentPane().add(statusBar,BorderLayout.SOUTH);
+        rebuildStatusBar();
+    }
+
+    private JPanel statusChip(JLabel label) {
+        SurfacePanel chip = new SurfacePanel(
+            new FlowLayout(FlowLayout.LEFT, 0, 0),
+            ModernUI.mix(currentTheme.getMenuBg(), currentTheme.getSecondary(), 0.25f),
+            ModernUI.hairline(currentTheme),
+            18);
+        chip.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        label.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        label.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 180));
+        chip.add(label);
+        return chip;
+    }
+
+    private void rebuildStatusBar() {
+        statusLeft = new JLabel("Ln 1, Col 1");
+        statusMid = new JLabel("0 words");
+        statusRight = new JLabel("v" + VERSION);
+        lastEditedLabel = new JLabel("Not edited yet");
+
+        statusBar = new SurfacePanel(
+            new BorderLayout(12, 0),
+            currentTheme.getStatusBg(),
+            ModernUI.hairline(currentTheme),
+            0);
+        statusBar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, ModernUI.hairline(currentTheme)),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+
+        JPanel leftPanel = ModernUI.transparentPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel centerPanel = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        JPanel rightPanel = ModernUI.transparentPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+
+        JLabel[] labels = { statusLeft, statusMid, lastEditedLabel, statusRight };
+        for (JLabel label : labels) {
+            label.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+            label.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 175));
+        }
+
+        leftPanel.add(statusLeft);
+        centerPanel.add(statusMid);
+        rightPanel.add(lastEditedLabel);
+        rightPanel.add(statusRight);
+
+        statusBar.add(leftPanel, BorderLayout.WEST);
+        statusBar.add(centerPanel, BorderLayout.CENTER);
+        statusBar.add(rightPanel, BorderLayout.EAST);
+
+        if (rootPanel != null) {
+            rootPanel.add(statusBar, BorderLayout.SOUTH);
+            rootPanel.revalidate();
+            rootPanel.repaint();
+        }
     }
 
     private void initAutoSave() {
@@ -522,11 +815,15 @@ public class NotebookMe extends JFrame {
             td.versionHistory.add(td.textArea.getText());
             td.file=file; td.lastSaved=td.textArea.getText(); td.modified=false;
             int i=tabs.indexOf(td); if(i>=0)updateTabTitle(i,file.getName());
-            setTitle(APP_NAME+"  ·  "+file.getName()); flashStatus("Saved");
+            setTitle(APP_NAME+" - "+file.getName()); flashStatus("Saved");
         }catch(IOException e){showError("Failed to save:\n"+e.getMessage());}
     }
 
-    private void updateTabTitle(int i,String t){Component c=tabbedPane.getTabComponentAt(i);if(c instanceof JPanel){JPanel p=(JPanel)c;if(p.getComponentCount()>0&&p.getComponent(0) instanceof JLabel)((JLabel)p.getComponent(0)).setText(t);}}
+    private void updateTabTitle(int i, String t) {
+        if (i < 0 || i >= tabs.size()) return;
+        TabData td = tabs.get(i);
+        if (td.tabLabel != null) td.tabLabel.setText(t);
+    }
 
     private void pickFontFamily() {
         String[] fonts=GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
@@ -551,7 +848,7 @@ public class NotebookMe extends JFrame {
         try{int s=td.textArea.getSelectionStart(),e=td.textArea.getSelectionEnd();if(s!=e)hl.addHighlight(s,e,new DefaultHighlighter.DefaultHighlightPainter(c));}catch(BadLocationException ignored){}
     }
 
-    private void applyFontToAll() { for(TabData td:tabs){td.textArea.setFont(new Font(fontFamily,Font.PLAIN,fontSize));td.linePanel.repaint();} statusRight.setText("  "+fontSize+"pt  ·  v"+VERSION+"  "); }
+    private void applyFontToAll() { for(TabData td:tabs){td.textArea.setFont(new Font(fontFamily,Font.PLAIN,fontSize));td.linePanel.repaint();} statusRight.setText(fontSize+"pt - v"+VERSION); }
 
     private void applySyntaxHighlighting(TabData td) {
         if(td.file==null)return; String name=td.file.getName().toLowerCase(); Highlighter hl=td.textArea.getHighlighter(); String text=td.textArea.getText();
@@ -663,7 +960,7 @@ public class NotebookMe extends JFrame {
             if(rem<=0){((javax.swing.Timer)e.getSource()).stop();td.textArea.setText("");if(td.file!=null&&td.file.exists())td.file.delete();td.file=null;td.modified=false;
                 JOptionPane.showMessageDialog(NotebookMe.this,"Note has self-destructed!","Destroyed",JOptionPane.WARNING_MESSAGE);
                 int i=tabs.indexOf(td);if(i>=0)updateTabTitle(i,"[destroyed]");}
-            else{long s=rem/1000;statusRight.setText(String.format("  DESTRUCT %d:%02d  ",s/60,s%60));}});
+            else{long s=rem/1000;statusRight.setText(String.format("DESTRUCT %d:%02d",s/60,s%60));}});
         td.selfDestructTimer.start(); flashStatus("Self-destruct in "+mins+"min");
     }
 
@@ -703,23 +1000,24 @@ public class NotebookMe extends JFrame {
     }
 
     private void quickSearch() {
-        String q=searchField.getText(); if(q.isEmpty()||q.equals("Search..."))return; JTextArea ta=getCurrentTextArea();
+        String q=searchField.getText(); if(q.isEmpty()||q.equals("Search notes"))return; JTextArea ta=getCurrentTextArea();
         String text=ta.getText().toLowerCase(); int from=ta.getCaretPosition(); int idx=text.indexOf(q.toLowerCase(),from);
         if(idx==-1)idx=text.indexOf(q.toLowerCase(),0);
         if(idx>=0){ta.setCaretPosition(idx);ta.select(idx,idx+q.length());ta.requestFocus();flashStatus("Found");}else flashStatus("Not found");
     }
 
     private void onTextChange(TabData td) {
+        if (td.linePanel != null) td.linePanel.refreshMetrics();
         td.modified=true; int i=tabs.indexOf(td); if(i>=0){String n=td.file!=null?td.file.getName():"untitled"; updateTabTitle(i,"* "+n);}
         updateStatus();
         // Update last-edited timestamp with clock format
         String fmt=use24HourClock?"HH:mm:ss":"hh:mm:ss a";
-        SwingUtilities.invokeLater(()->lastEditedLabel.setText("Last edited: "+new SimpleDateFormat(fmt).format(new java.util.Date())+"  "));
+        SwingUtilities.invokeLater(()->lastEditedLabel.setText("Last edited: "+new SimpleDateFormat(fmt).format(new java.util.Date())));
     }
 
-    private void updateStatus() { SwingUtilities.invokeLater(()->{JTextArea ta=getCurrentTextArea();String t=ta.getText();int ch=t.length(),w=t.isBlank()?0:t.trim().split("\\s+").length,l=ta.getLineCount();statusMid.setText(w+" words  ·  "+ch+" chars  ·  "+l+" lines");}); }
+    private void updateStatus() { SwingUtilities.invokeLater(()->{JTextArea ta=getCurrentTextArea();String t=ta.getText();int ch=t.length(),w=t.isBlank()?0:t.trim().split("\\s+").length,l=ta.getLineCount();statusMid.setText(w+" words - "+ch+" chars - "+l+" lines");}); }
 
-    private void updateCaretStatus() { SwingUtilities.invokeLater(()->{try{JTextArea ta=getCurrentTextArea();int pos=ta.getCaretPosition(),line=ta.getLineOfOffset(pos)+1,col=pos-ta.getLineStartOffset(line-1)+1;statusLeft.setText("  Ln "+line+", Col "+col);}catch(BadLocationException ignored){}}); }
+    private void updateCaretStatus() { SwingUtilities.invokeLater(()->{try{JTextArea ta=getCurrentTextArea();int pos=ta.getCaretPosition(),line=ta.getLineOfOffset(pos)+1,col=pos-ta.getLineStartOffset(line-1)+1;statusLeft.setText("Ln "+line+", Col "+col);}catch(BadLocationException ignored){}}); }
 
     private void changeFontSize(int d) { fontSize=Math.max(9,Math.min(72,fontSize+d)); applyFontToAll(); }
 
@@ -750,7 +1048,7 @@ public class NotebookMe extends JFrame {
 
     /** Smooth slide animation for sidebar toggle */
     private void animateSidebar() {
-        final int targetWidth = 210;
+        final int targetWidth = SIDEBAR_WIDTH;
         final int step = 15;
         final int delay = 12; // ms per frame
         if (sidebarVisible) {
@@ -765,7 +1063,7 @@ public class NotebookMe extends JFrame {
                     splitPane.getLeftComponent().setVisible(false);
                     splitPane.setDividerSize(0);
                     sidebarVisible = false;
-                    sideToggleBtn.repaint();
+                    sideToggleBtn.setText(">");
                     timer.stop();
                 }
             });
@@ -773,7 +1071,7 @@ public class NotebookMe extends JFrame {
         } else {
             // Slide open
             splitPane.getLeftComponent().setVisible(true);
-            splitPane.setDividerSize(3);
+            splitPane.setDividerSize(1);
             splitPane.setDividerLocation(0);
             javax.swing.Timer timer = new javax.swing.Timer(delay, null);
             timer.addActionListener(e -> {
@@ -783,7 +1081,7 @@ public class NotebookMe extends JFrame {
                 } else {
                     splitPane.setDividerLocation(targetWidth);
                     sidebarVisible = true;
-                    sideToggleBtn.repaint();
+                    sideToggleBtn.setText("<");
                     timer.stop();
                 }
             });
@@ -791,7 +1089,7 @@ public class NotebookMe extends JFrame {
         }
     }
 
-    /** Toggle fullscreen mode — smooth via maximized state */
+    /** Toggle fullscreen mode - smooth via maximized state */
     private void toggleFullScreen() {
         if (!isFullScreen) {
             dispose();
@@ -799,7 +1097,7 @@ public class NotebookMe extends JFrame {
             setVisible(true);
             setExtendedState(JFrame.MAXIMIZED_BOTH);
             isFullScreen = true;
-            flashStatus("Fullscreen — press ESC or F11 to exit");
+            flashStatus("Fullscreen - press ESC or F11 to exit");
         } else {
             dispose();
             setUndecorated(false);
@@ -813,38 +1111,48 @@ public class NotebookMe extends JFrame {
     }
 
     private void applyThemeUI() {
-        Color bg=currentTheme.getBackground(),fg=currentTheme.getForeground(),ac=currentTheme.getAccent();
-        for(TabData td:tabs){td.textArea.setBackground(bg);td.textArea.setForeground(fontColor!=null?fontColor:fg);td.textArea.setCaretColor(ac);td.textArea.setSelectionColor(ac.darker());td.textArea.setSelectedTextColor(bg);td.linePanel.setTheme(currentTheme);}
-        getContentPane().setBackground(bg); menuBar.setBackground(currentTheme.getMenuBg()); menuBar.setBorder(BorderFactory.createMatteBorder(0,0,1,0,currentTheme.getBorder()));
-        // Force menu text to black for visibility
-        for(int mi=0;mi<menuBar.getMenuCount();mi++){JMenu menu=menuBar.getMenu(mi);if(menu!=null){menu.setForeground(Color.BLACK);}}
-        statusBar.setBackground(currentTheme.getStatusBg()); statusBar.setBorder(BorderFactory.createMatteBorder(1,0,0,0,currentTheme.getBorder()));
-        Color sfg=new Color(fg.getRed(),fg.getGreen(),fg.getBlue(),160);
-        statusLeft.setForeground(sfg);statusMid.setForeground(sfg);statusRight.setForeground(sfg);lastEditedLabel.setForeground(sfg);
-        tabbedPane.setBackground(currentTheme.getMenuBg());tabbedPane.setForeground(fg);
-        // Update all tab header labels and close buttons to match new theme
-        for(int i=0;i<tabbedPane.getTabCount();i++){
-            Component c=tabbedPane.getTabComponentAt(i);
-            if(c instanceof JPanel){
-                JPanel p=(JPanel)c;
-                for(Component child:p.getComponents()){
-                    if(child instanceof JLabel)((JLabel)child).setForeground(Color.BLACK);
-                    if(child instanceof JButton)((JButton)child).setForeground(Color.BLACK);
-                }
-            }
+        ModernUI.apply(currentTheme);
+        Color fg = currentTheme.getForeground();
+        Color ac = currentTheme.getAccent();
+
+        if (rootPanel != null) {
+            rootPanel.setColors(
+                currentTheme.getBackground(),
+                currentTheme.getBackground(),
+                null);
         }
-        // Update sidebar tree colors
-        folderTree.setBackground(currentTheme.getMenuBg());
+
+        folderTree.setBackground(ModernUI.panelColor(currentTheme));
         folderTree.setForeground(fg);
+
+        for (TabData td : tabs) {
+            td.textArea.setBackground(ModernUI.editorColor(currentTheme));
+            td.textArea.setForeground(fontColor != null ? fontColor : fg);
+            td.textArea.setCaretColor(ac);
+            td.textArea.setSelectionColor(ModernUI.withAlpha(ac, 120));
+            td.textArea.setSelectedTextColor(fg);
+            td.textArea.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 22));
+            td.linePanel.setTheme(currentTheme);
+            if (td.scrollPane != null) ModernUI.styleScrollPane(td.scrollPane, currentTheme, ModernUI.editorColor(currentTheme));
+            if (td.tabLabel != null) td.tabLabel.setForeground(fg);
+            if (td.closeButton != null) td.closeButton.setForeground(ModernUI.withAlpha(fg, 120));
+        }
+
+        initMenuBar();
+        rebuildStatusBar();
+        rebuildWorkspaceLayout();
+        if (dyslexiaMode.enabled) applyDyslexiaMode();
+        updateStatus();
+        updateCaretStatus();
         repaint();
     }
 
     private void confirmExit() { for(TabData td:tabs){if(td.modified){int r=JOptionPane.showConfirmDialog(this,"Unsaved changes. Exit?","Exit",JOptionPane.YES_NO_OPTION);if(r!=JOptionPane.YES_OPTION)return;break;}} running=false;autoSaveThread.interrupt();dispose();System.exit(0); }
     private void openFindReplace() { new FindReplaceDialog(this,getCurrentTextArea(),currentTheme).setVisible(true); }
-    private void flashStatus(String msg) { SwingUtilities.invokeLater(()->statusRight.setText("  "+msg+"  ")); Thread t=new Thread(()->{try{Thread.sleep(2500);}catch(InterruptedException ignored){}SwingUtilities.invokeLater(()->statusRight.setText("  v"+VERSION+"  "));}); t.setDaemon(true);t.start(); }
+    private void flashStatus(String msg) { SwingUtilities.invokeLater(()->statusRight.setText(msg)); Thread t=new Thread(()->{try{Thread.sleep(2500);}catch(InterruptedException ignored){}SwingUtilities.invokeLater(()->statusRight.setText("v"+VERSION));}); t.setDaemon(true);t.start(); }
     private void showError(String msg) { JOptionPane.showMessageDialog(this,msg,"Error",JOptionPane.ERROR_MESSAGE); }
 
-    // ── New v3.0 methods ──
+    // New v3.0 methods
     private void duplicateTab() {
         TabData src=currentTab(); if(src==null)return;
         String name=src.file!=null?src.file.getName()+" (copy)":"untitled (copy)";
@@ -891,7 +1199,7 @@ public class NotebookMe extends JFrame {
     private void openTypingTest() { new TypingTestDialog(this,currentTheme).setVisible(true); }
     private void openDiary() { new DiaryDialog(this,currentTheme,notebookDir).setVisible(true); }
 
-    // ── v4.0 methods ──
+    // v4.0 methods
     private void selectNextOccurrence() {
         JTextArea ta=getCurrentTextArea(); String sel=ta.getSelectedText();
         if(sel==null||sel.isEmpty()){flashStatus("Select text first (Ctrl+D)");return;}
@@ -939,15 +1247,15 @@ public class NotebookMe extends JFrame {
             } else {
                 // Restore normal theme
                 td.textArea.setFont(new Font(fontFamily,Font.PLAIN,fontSize));
-                td.textArea.setBackground(currentTheme.getBackground());
+                td.textArea.setBackground(ModernUI.editorColor(currentTheme));
                 td.textArea.setForeground(fontColor!=null?fontColor:currentTheme.getForeground());
                 td.textArea.setCaretColor(currentTheme.getAccent());
-                td.textArea.setBorder(BorderFactory.createEmptyBorder(8,12,8,12));
+                td.textArea.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 22));
             }
         }
     }
 
-    // ── v5.0.0 methods ──
+    // v5.5 methods
 
     private void exportAs() {
         TabData td = currentTab(); if (td == null) return;
@@ -1036,7 +1344,7 @@ public class NotebookMe extends JFrame {
         readOnlyMode = enabled;
         for (TabData td : tabs) { td.textArea.setEditable(!readOnlyMode); }
         if (readOnlyMode) {
-            statusLeft.setText("  \ud83d\udd12 READ-ONLY");
+            statusLeft.setText("LOCKED");
             flashStatus("Read-only mode ON");
         } else {
             updateCaretStatus();
@@ -1146,63 +1454,105 @@ public class NotebookMe extends JFrame {
     }
 
     private void showWelcome() {
-        getCurrentTextArea().setText("  Welcome to notebook.me v5.0.0\n  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  NEW IN v5.0.0:\n   \ud83d\udcdd Markdown preview (Ctrl+M)\n   \ud83d\udcbe Custom save dialog\n   \ud83d\udce4 Export as .txt .md .pdf .docx\n   \ud83d\udd12 Read-only mode\n   \u2082\u2083 Subscript / Superscript\n   \ud83d\uddd1\ufe0f Reset diary option\n\n  FEATURES:\n   11 themes + CRT Terminal\n   Dyslexia-friendly mode\n   Typing speed test (3 modes)\n   Diary with streak tracker\n   Ctrl+D highlight all occurrences\n   Full screen (F11)\n\n  Start typing to begin.\n");
+        getCurrentTextArea().setText(
+            "Welcome to notebook.me v5.5\n" +
+            "-----------------------------\n\n" +
+            "Start typing, open a file, or create a note from the Library.\n\n" +
+            "Quick keys:\n" +
+            "  Ctrl+N       New tab\n" +
+            "  Ctrl+O       Open file\n" +
+            "  Ctrl+S       Save\n" +
+            "  Ctrl+F       Find and replace\n" +
+            "  Ctrl+M       Markdown preview\n" +
+            "  F11          Fullscreen\n");
         getCurrentTextArea().setCaretPosition(0); TabData td=currentTab(); if(td!=null){td.modified=false;td.lastSaved=getCurrentTextArea().getText();}
     }
 
     private void showShortcuts() { JOptionPane.showMessageDialog(this,"Ctrl+N  New tab\nCtrl+O  Open\nCtrl+S  Save\nCtrl+W  Close tab\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Y  Redo\nCtrl+F  Find & Replace\nCtrl+D  Highlight All\nCtrl+M  Markdown Preview\nF11  Fullscreen\nESC  Exit fullscreen\nCtrl++/- Zoom","Shortcuts",JOptionPane.INFORMATION_MESSAGE); }
     private void showAbout() { JOptionPane.showMessageDialog(this,"notebook.me v"+VERSION+"\nFeature-rich Java Notepad\n\nMarkdown Preview, Export (.txt .md .pdf .docx),\nRead-Only Mode, Sub/Superscript,\n11 Themes, CRT Terminal, Dyslexia Mode,\nDiary + Streak, Typing Tests, PDF Export,\nFolders, Drawing, Tables & more.\n\nInstances: "+instanceCount,"About",JOptionPane.INFORMATION_MESSAGE); }
 
-    private static final Color DARK_GOLD = new Color(50, 40, 30);
-    private JMenu styledMenu(String t){JMenu m=new JMenu(t);m.setForeground(Color.BLACK);m.setFont(new Font("Segoe UI",Font.PLAIN,12));m.getPopupMenu().setBackground(currentTheme.getMenuBg());m.getPopupMenu().setBorder(BorderFactory.createLineBorder(currentTheme.getBorder()));return m;}
-    private JMenuItem si(String t){JMenuItem i=new JMenuItem(t);i.setBackground(currentTheme.getMenuBg());i.setForeground(DARK_GOLD);i.setFont(new Font("Segoe UI",Font.PLAIN,12));i.setBorderPainted(false);return i;}
-    private void sci(JCheckBoxMenuItem i){i.setBackground(currentTheme.getMenuBg());i.setForeground(DARK_GOLD);i.setFont(new Font("Segoe UI",Font.PLAIN,12));}
-    private void sri(JRadioButtonMenuItem i){i.setBackground(currentTheme.getMenuBg());i.setForeground(DARK_GOLD);i.setFont(new Font("Segoe UI",Font.PLAIN,12));}
+    private JMenu styledMenu(String text) {
+        JMenu menu = new JMenu(text);
+        menu.setForeground(ModernUI.mix(currentTheme.getForeground(), currentTheme.getAccent(), 0.12f));
+        menu.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        menu.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        menu.getPopupMenu().setBackground(ModernUI.cardColor(currentTheme));
+        menu.getPopupMenu().setBorder(new CompoundBorder(
+            new RoundedBorder(ModernUI.hairline(currentTheme), ModernUI.RADIUS, 1),
+            BorderFactory.createEmptyBorder(6, 0, 6, 0)));
+        return menu;
+    }
 
-    // ── Modern Tree Cell Renderer with emoji icons ──
+    private JMenuItem si(String text) {
+        JMenuItem item = new JMenuItem(text);
+        item.setOpaque(true);
+        item.setBackground(ModernUI.cardColor(currentTheme));
+        item.setForeground(currentTheme.getForeground());
+        item.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        item.setBorderPainted(false);
+        return item;
+    }
+
+    private void sci(JCheckBoxMenuItem item) {
+        item.setOpaque(true);
+        item.setBackground(ModernUI.cardColor(currentTheme));
+        item.setForeground(currentTheme.getForeground());
+        item.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+    }
+
+    private void sri(JRadioButtonMenuItem item) {
+        item.setOpaque(true);
+        item.setBackground(ModernUI.cardColor(currentTheme));
+        item.setForeground(currentTheme.getForeground());
+        item.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+    }
+
+    // Modern tree cell renderer
     class ModernTreeRenderer extends DefaultTreeCellRenderer {
+        private final Icon libraryIcon = pickIcon("FileView.computerIcon", UIManager.getIcon("FileView.hardDriveIcon"));
+        private final Icon folderClosedIcon = pickIcon("Tree.closedIcon", UIManager.getIcon("FileView.directoryIcon"));
+        private final Icon folderOpenIcon = pickIcon("Tree.openIcon", UIManager.getIcon("FileView.directoryIcon"));
+        private final Icon noteIcon = pickIcon("Tree.leafIcon", UIManager.getIcon("FileView.fileIcon"));
+
+        private Icon pickIcon(String key, Icon fallback) {
+            Icon icon = UIManager.getIcon(key);
+            return icon != null ? icon : fallback;
+        }
+
         @Override
         public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
             JLabel label = (JLabel) super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
             String text = value.toString();
-            label.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 13));
-            label.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 4));
-            // Set icons based on tree depth
+            label.setFont(ModernUI.uiFont(Font.PLAIN, 13f));
+            label.setBorder(BorderFactory.createEmptyBorder(5, 8, 5, 8));
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) value;
             int depth = node.getLevel();
             if (depth == 0) {
-                // Root
-                label.setIcon(null);
+                label.setText("Library");
+                label.setFont(ModernUI.uiFont(Font.BOLD, 13f));
+                label.setIcon(libraryIcon);
             } else if (depth == 1) {
-                // Folder
-                label.setText("📁 " + text);
-                label.setIcon(null);
+                label.setText(text);
+                label.setFont(ModernUI.uiFont(Font.BOLD, 12f));
+                label.setIcon(expanded ? folderOpenIcon : folderClosedIcon);
             } else {
-                // Note file
-                label.setText("📄 " + text);
-                label.setIcon(null);
+                label.setText(text);
+                label.setIcon(noteIcon);
             }
-            // Theme colors
             if (sel) {
-                label.setBackground(currentTheme.getAccent());
-                label.setForeground(currentTheme.getBackground());
+                label.setBackground(ModernUI.accentSoft(currentTheme));
+                label.setForeground(currentTheme.getForeground());
                 label.setOpaque(true);
             } else {
-                label.setBackground(currentTheme.getMenuBg());
-                label.setForeground(currentTheme.getForeground());
+                label.setBackground(ModernUI.panelColor(currentTheme));
+                label.setForeground(depth == 0 ? ModernUI.mix(currentTheme.getForeground(), currentTheme.getAccent(), 0.18f) : currentTheme.getForeground());
                 label.setOpaque(true);
             }
             return label;
         }
-    }
-
-    static class SlimScrollBarUI extends javax.swing.plaf.basic.BasicScrollBarUI {
-        private final Theme theme; SlimScrollBarUI(Theme t){this.theme=t;}
-        @Override protected void configureScrollBarColors(){thumbColor=theme.getAccent().darker().darker();trackColor=theme.getBackground();}
-        @Override protected JButton createDecreaseButton(int o){return zb();}@Override protected JButton createIncreaseButton(int o){return zb();}
-        private JButton zb(){JButton b=new JButton();b.setPreferredSize(new Dimension(0,0));return b;}
-        @Override protected void paintThumb(Graphics g,JComponent c,Rectangle r){Graphics2D g2=(Graphics2D)g.create();g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);g2.setColor(thumbColor);g2.fillRoundRect(r.x+2,r.y+2,r.width-4,r.height-4,6,6);g2.dispose();}
-        @Override protected void paintTrack(Graphics g,JComponent c,Rectangle r){g.setColor(trackColor);g.fillRect(r.x,r.y,r.width,r.height);}
     }
 
     public static void main(String[] args) { SwingUtilities.invokeLater(NotebookMe::new); }
