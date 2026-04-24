@@ -1,8 +1,6 @@
 import java.awt.*;
 
-// ════════════════════════════════════════════════════════
-//  Theme Contract Interface
-// ════════════════════════════════════════════════════════
+// Theme Contract Interface
 interface Theme {
     Color getBackground();
     Color getForeground();
@@ -12,4 +10,5 @@ interface Theme {
     Color getMenuBg();
     Color getStatusBg();
     String getName();
+    default boolean hasScanlines() { return false; }
 }
