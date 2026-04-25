@@ -1,4 +1,4 @@
-# Notebook.Me
+# Notebook.Me v6.0.0
 
 Feature-rich Java notebook app.
 

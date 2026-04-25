@@ -1,5 +1,5 @@
 /**
- * notebook.me v5.5 - Feature-rich Java Notepad
+ * notebook.me v6.0.0 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
@@ -339,9 +339,9 @@ public class NotebookMe extends JFrame {
         JButton addFolder = smallBtn("New Folder");
         JButton addNote = smallBtn("New Note");
         JButton deleteItem = smallBtn("Delete");
-        addFolder.setIcon(UIManager.getIcon("FileChooser.newFolderIcon"));
-        addNote.setIcon(UIManager.getIcon("FileView.fileIcon"));
-        deleteItem.setIcon(UIManager.getIcon("InternalFrame.closeIcon"));
+        addFolder.setIcon(createIcon("folder"));
+        addNote.setIcon(createIcon("note"));
+        deleteItem.setIcon(createIcon("delete"));
         ModernUI.styleButton(deleteItem, currentTheme, "danger");
         addFolder.addActionListener(e -> createFolder());
         addNote.addActionListener(e -> createNoteInFolder());
@@ -484,7 +484,7 @@ public class NotebookMe extends JFrame {
 
     private TabData addNewTab(String title, File file) {
         TabData td = new TabData(); td.file = file;
-        td.textArea = new JTextArea(); td.textArea.setLineWrap(wordWrap); td.textArea.setWrapStyleWord(true); td.textArea.setTabSize(4);
+        td.textArea = new EditorTextArea(); td.textArea.setLineWrap(wordWrap); td.textArea.setWrapStyleWord(true); td.textArea.setTabSize(4);
         td.textArea.setBackground(ModernUI.editorColor(currentTheme));
         td.textArea.setForeground(fontColor != null ? fontColor : currentTheme.getForeground());
         td.textArea.setCaretColor(currentTheme.getAccent()); td.textArea.setSelectionColor(ModernUI.withAlpha(currentTheme.getAccent(), 120));
@@ -559,6 +559,33 @@ public class NotebookMe extends JFrame {
         if (showLineNumbers) td.linePanel.refreshMetrics();
         td.scrollPane.revalidate();
         td.scrollPane.repaint();
+    }
+
+    private Icon createIcon(String type) {
+        return new Icon() {
+            @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(currentTheme.getForeground());
+                int s = 14;
+                if (type.equals("folder")) {
+                    g2.fillRoundRect(x, y+2, s, s-4, 2, 2);
+                    g2.fillRect(x, y+2, s/2, 3);
+                } else if (type.equals("note")) {
+                    g2.fillRoundRect(x+2, y, s-4, s, 2, 2);
+                    g2.setColor(currentTheme.getBackground());
+                    g2.fillRect(x+4, y+4, s-8, 2);
+                    g2.fillRect(x+4, y+8, s-8, 2);
+                } else if (type.equals("delete")) {
+                    g2.setStroke(new BasicStroke(2));
+                    g2.drawLine(x+2, y+2, x+s-2, y+s-2);
+                    g2.drawLine(x+s-2, y+2, x+2, y+s-2);
+                }
+                g2.dispose();
+            }
+            @Override public int getIconWidth() { return 14; }
+            @Override public int getIconHeight() { return 14; }
+        };
     }
 
     private void initMenuBar() {
@@ -664,17 +691,16 @@ public class NotebookMe extends JFrame {
         JMenuItem diary=si("Diary Mode...");
         p.addActionListener(e->togglePin()); v.addActionListener(e->showVersionHistory()); sd.addActionListener(e->setSelfDestruct());
         tt.addActionListener(e->openTypingTest()); diary.addActionListener(e->openDiary());
-        JMenuItem dr=si("Reset Diary...");
-        dr.addActionListener(e->resetDiary());
-        m.add(as);m.addSeparator();m.add(p);m.add(v);m.addSeparator();m.add(tt);m.add(diary);m.add(dr);m.addSeparator();m.add(sd); return m;
+        m.add(as);m.addSeparator();m.add(p);m.add(v);m.addSeparator();m.add(tt);m.add(diary);m.addSeparator();m.add(sd); return m;
     }
 
     private JMenu buildThemeMenu() {
         JMenu m=styledMenu("Theme"); ButtonGroup g=new ButtonGroup();
-        String[][] ts={{"Ink (dark)","ink"},{"Parchment (light)","par"},{"Mocha (warm)","moc"},{"Ocean (blue)","oce"},{"Sunset (warm)","sun"},{"Forest (green)","for"},
-            {"Lavender (soft)","lav"},{"Dracula (classic)","dra"},{"Nord (arctic)","nor"},{"Solarized (dark)","sol"},{"CRT Terminal","crt"}};
-        boolean first=true;
-        for(String[] t:ts){ JRadioButtonMenuItem i=new JRadioButtonMenuItem(t[0],first); sri(i); g.add(i);
+        String[][] ts={{"Ink (dark)","ink","InkTheme"},{"Parchment (light)","par","ParchmentTheme"},{"Mocha (warm)","moc","MochaTheme"},{"Ocean (blue)","oce","OceanTheme"},{"Sunset (warm)","sun","SunsetTheme"},{"Forest (green)","for","ForestTheme"},
+            {"Lavender (soft)","lav","LavenderTheme"},{"Dracula (classic)","dra","DraculaTheme"},{"Nord (arctic)","nor","NordTheme"},{"Solarized (dark)","sol","SolarizedTheme"},{"CRT Terminal","crt","CRTTheme"}};
+        for(String[] t:ts){ 
+            boolean isSelected = currentTheme.getClass().getSimpleName().equals(t[2]);
+            JRadioButtonMenuItem i=new JRadioButtonMenuItem(t[0],isSelected); sri(i); g.add(i);
             final String k=t[1]; i.addActionListener(e->{
                 switch(k){case"ink":applyTheme(new InkTheme());break;case"par":applyTheme(new ParchmentTheme());break;
                 case"moc":applyTheme(new MochaTheme());break;case"oce":applyTheme(new OceanTheme());break;
@@ -683,7 +709,7 @@ public class NotebookMe extends JFrame {
                 case"nor":applyTheme(new NordTheme());break;case"sol":applyTheme(new SolarizedTheme());break;
                 case"crt":applyTheme(new CRTTheme());break;}
             });
-            m.add(i); first=false; } return m;
+            m.add(i); } return m;
     }
 
     private JMenu buildSettingsMenu() {
@@ -783,6 +809,8 @@ public class NotebookMe extends JFrame {
 
     private void openFile() {
         JFileChooser ch=new JFileChooser(); ch.setDialogTitle("Open"); ch.setAcceptAllFileFilterUsed(true);
+        SwingUtilities.updateComponentTreeUI(ch);
+        ch.setPreferredSize(new Dimension(800, 600));
         ch.addChoosableFileFilter(new FileNameExtensionFilter("Text (*.txt)","txt"));
         ch.addChoosableFileFilter(new FileNameExtensionFilter("Java (*.java)","java"));
         ch.addChoosableFileFilter(new FileNameExtensionFilter("Python (*.py)","py"));
@@ -826,9 +854,33 @@ public class NotebookMe extends JFrame {
     }
 
     private void pickFontFamily() {
-        String[] fonts=GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
-        String p=(String)JOptionPane.showInputDialog(this,"Choose Font:","Font Family",JOptionPane.PLAIN_MESSAGE,null,fonts,fontFamily);
-        if(p!=null){fontFamily=p;applyFontToAll();}
+        String[] fonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+        JPanel panel = new JPanel(new BorderLayout(0, 4));
+        JTextField searchField = new JTextField();
+        searchField.setToolTipText("Search fonts...");
+        DefaultListModel<String> model = new DefaultListModel<>();
+        for (String f : fonts) model.addElement(f);
+        JList<String> list = new JList<>(model);
+        list.setSelectedValue(fontFamily, true);
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void filter() {
+                String q = searchField.getText().toLowerCase();
+                model.clear();
+                for (String f : fonts) if (f.toLowerCase().contains(q)) model.addElement(f);
+            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+        });
+        panel.add(searchField, BorderLayout.NORTH);
+        JScrollPane sp = new JScrollPane(list);
+        sp.setPreferredSize(new Dimension(250, 200));
+        panel.add(sp, BorderLayout.CENTER);
+        int r = JOptionPane.showConfirmDialog(this, panel, "Choose Font", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (r == JOptionPane.OK_OPTION && list.getSelectedValue() != null) {
+            fontFamily = list.getSelectedValue();
+            applyFontToAll();
+        }
     }
 
     private void pickFontSize() {
@@ -1202,18 +1254,32 @@ public class NotebookMe extends JFrame {
     // v4.0 methods
     private void selectNextOccurrence() {
         JTextArea ta=getCurrentTextArea(); String sel=ta.getSelectedText();
-        if(sel==null||sel.isEmpty()){flashStatus("Select text first (Ctrl+D)");return;}
+        if(sel==null||sel.isEmpty()){
+            ta.getHighlighter().removeAllHighlights();
+            flashStatus("Highlights cleared");
+            return;
+        }
         String text=ta.getText();
         Highlighter hl=ta.getHighlighter();
-        // Highlight ALL occurrences at once (like VS Code Ctrl+Shift+L)
+        hl.removeAllHighlights();
         int count=0; int idx=0;
         Color accentAlpha=new Color(currentTheme.getAccent().getRed(),currentTheme.getAccent().getGreen(),currentTheme.getAccent().getBlue(),80);
         while((idx=text.indexOf(sel,idx))>=0){
             try{hl.addHighlight(idx,idx+sel.length(),new DefaultHighlighter.DefaultHighlightPainter(accentAlpha));}catch(BadLocationException ignored){}
             count++; idx+=sel.length();
         }
-        if(count>0) flashStatus(count+" occurrences highlighted");
-        else flashStatus("No occurrences found");
+        if(count>0) {
+            flashStatus(count+" occurrences highlighted");
+            String rep = JOptionPane.showInputDialog(this, "Edit all " + count + " occurrences of '" + sel + "':", sel);
+            if (rep != null) {
+                String newTxt = text.replace(sel, rep);
+                ta.setText(newTxt);
+                flashStatus("Replaced " + count + " occurrences");
+            }
+            ta.getHighlighter().removeAllHighlights();
+        } else {
+            flashStatus("No occurrences found");
+        }
     }
 
     private void replaceAllOccurrences() {
@@ -1434,29 +1500,12 @@ public class NotebookMe extends JFrame {
         }
     }
 
-    private void resetDiary() {
-        int r = JOptionPane.showConfirmDialog(this,
-            "This will DELETE all diary entries and reset your PIN.\nThis cannot be undone!\n\nAre you sure?",
-            "Reset Diary", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (r != JOptionPane.YES_OPTION) return;
-        r = JOptionPane.showConfirmDialog(this,
-            "FINAL CONFIRMATION: All diary data will be permanently deleted.",
-            "Confirm Reset", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (r != JOptionPane.YES_OPTION) return;
-        File diaryDir = new File(notebookDir, "diary");
-        if (diaryDir.exists()) {
-            File[] files = diaryDir.listFiles();
-            if (files != null) for (File f : files) f.delete();
-        }
-        File pinFile = new File(notebookDir, "diary_pin.dat");
-        if (pinFile.exists()) pinFile.delete();
-        flashStatus("Diary reset complete");
-    }
+    // resetDiary moved to DiaryDialog
 
     private void showWelcome() {
         getCurrentTextArea().setText(
-            "Welcome to notebook.me v5.5\n" +
-            "-----------------------------\n\n" +
+            "Welcome to notebook.me v6.0.0 by noicOrg\n" +
+            "------------------------------------------\n\n" +
             "Start typing, open a file, or create a note from the Library.\n\n" +
             "Quick keys:\n" +
             "  Ctrl+N       New tab\n" +
@@ -1469,7 +1518,107 @@ public class NotebookMe extends JFrame {
     }
 
     private void showShortcuts() { JOptionPane.showMessageDialog(this,"Ctrl+N  New tab\nCtrl+O  Open\nCtrl+S  Save\nCtrl+W  Close tab\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Y  Redo\nCtrl+F  Find & Replace\nCtrl+D  Highlight All\nCtrl+M  Markdown Preview\nF11  Fullscreen\nESC  Exit fullscreen\nCtrl++/- Zoom","Shortcuts",JOptionPane.INFORMATION_MESSAGE); }
-    private void showAbout() { JOptionPane.showMessageDialog(this,"notebook.me v"+VERSION+"\nFeature-rich Java Notepad\n\nMarkdown Preview, Export (.txt .md .pdf .docx),\nRead-Only Mode, Sub/Superscript,\n11 Themes, CRT Terminal, Dyslexia Mode,\nDiary + Streak, Typing Tests, PDF Export,\nFolders, Drawing, Tables & more.\n\nInstances: "+instanceCount,"About",JOptionPane.INFORMATION_MESSAGE); }
+    private void showAbout() {
+        JDialog aboutDlg = new JDialog(this, "About", true);
+        aboutDlg.setSize(520, 560);
+        aboutDlg.setLocationRelativeTo(this);
+        
+        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        mainPanel.setBackground(currentTheme.getBackground());
+        
+        String hex = String.format("#%02x%02x%02x", currentTheme.getForeground().getRed(), currentTheme.getForeground().getGreen(), currentTheme.getForeground().getBlue());
+        String aboutText = "<html><body><h2 style='color:" + hex + "'>Notebook.Me</h2>" +
+                           "<p style='color:" + hex + ";width:350px;font-size:11px;'>" +
+                           "A smart and minimal note-taking app designed to help users write, organize, and manage their notes efficiently.<br><br>" +
+                           "Built on Java<br>Built by noicOrg, a team of two.<br>Current version " + VERSION + "<br><br>" +
+                           "<b>User trust statement:</b><br>Your privacy matters to us. Your notes remain secure and accessible only to you.<br><br>" +
+                           "Instances: " + instanceCount + "</p></body></html>";
+        JLabel textLabel = new JLabel(aboutText);
+        mainPanel.add(textLabel, BorderLayout.NORTH);
+        
+        JPanel tttPanel = new JPanel(new BorderLayout(5, 5));
+        tttPanel.setOpaque(false);
+        JLabel title = new JLabel("You vs The Notebook", SwingConstants.CENTER);
+        title.setFont(ModernUI.uiFont(Font.BOLD, 14f));
+        title.setForeground(currentTheme.getForeground());
+        tttPanel.add(title, BorderLayout.NORTH);
+        
+        JPanel grid = new JPanel(new GridLayout(3, 3, 4, 4));
+        grid.setOpaque(false);
+        JButton[] btns = new JButton[9];
+        for (int i=0; i<9; i++) {
+            btns[i] = new JButton("");
+            btns[i].setFont(ModernUI.uiFont(Font.BOLD, 24f));
+            btns[i].setFocusPainted(false);
+            btns[i].setBackground(ModernUI.panelColor(currentTheme));
+            btns[i].setForeground(currentTheme.getForeground());
+            final int idx = i;
+            btns[i].addActionListener(e -> {
+                if (!btns[idx].getText().isEmpty()) return;
+                btns[idx].setText("X");
+                if (checkWin(btns, "X")) { JOptionPane.showMessageDialog(aboutDlg, "You win!"); resetTTT(btns); return; }
+                if (isFull(btns)) { JOptionPane.showMessageDialog(aboutDlg, "Draw!"); resetTTT(btns); return; }
+                
+                for(JButton b : btns) b.setEnabled(false);
+                
+                javax.swing.Timer timer = new javax.swing.Timer(500, ev -> {
+                    makeAIMove(btns);
+                    for(JButton b : btns) b.setEnabled(true);
+                    if (checkWin(btns, "O")) { JOptionPane.showMessageDialog(aboutDlg, "The Notebook wins!"); resetTTT(btns); return; }
+                    if (isFull(btns)) { JOptionPane.showMessageDialog(aboutDlg, "Draw!"); resetTTT(btns); return; }
+                });
+                timer.setRepeats(false);
+                timer.start();
+            });
+            grid.add(btns[i]);
+        }
+        tttPanel.add(grid, BorderLayout.CENTER);
+        
+        JButton resetBtn = new JButton("Reset Game");
+        ModernUI.styleButton(resetBtn, currentTheme, "secondary");
+        resetBtn.addActionListener(e -> resetTTT(btns));
+        tttPanel.add(resetBtn, BorderLayout.SOUTH);
+        
+        mainPanel.add(tttPanel, BorderLayout.CENTER);
+        aboutDlg.setContentPane(mainPanel);
+        aboutDlg.setVisible(true);
+    }
+    
+    private boolean checkWin(JButton[] b, String p) {
+        int[][] wins = {{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}};
+        for (int[] w : wins) if (b[w[0]].getText().equals(p) && b[w[1]].getText().equals(p) && b[w[2]].getText().equals(p)) return true;
+        return false;
+    }
+    private boolean isFull(JButton[] b) {
+        for(JButton btn: b) if(btn.getText().isEmpty()) return false;
+        return true;
+    }
+    private void resetTTT(JButton[] b) {
+        for(JButton btn: b) btn.setText("");
+    }
+
+    private void makeAIMove(JButton[] btns) {
+        if (tryMove(btns, "O")) return;
+        if (tryMove(btns, "X")) return;
+        if (btns[4].getText().isEmpty()) { btns[4].setText("O"); return; }
+        java.util.List<Integer> empty = new java.util.ArrayList<>();
+        for (int j=0; j<9; j++) if(btns[j].getText().isEmpty()) empty.add(j);
+        if (!empty.isEmpty()) btns[empty.get(new java.util.Random().nextInt(empty.size()))].setText("O");
+    }
+
+    private boolean tryMove(JButton[] b, String p) {
+        int[][] wins = {{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}};
+        for (int[] w : wins) {
+            int count = 0; int empty = -1;
+            for (int i : w) {
+                if (b[i].getText().equals(p)) count++;
+                else if (b[i].getText().isEmpty()) empty = i;
+            }
+            if (count == 2 && empty != -1) { b[empty].setText("O"); return true; }
+        }
+        return false;
+    }
 
     private JMenu styledMenu(String text) {
         JMenu menu = new JMenu(text);
@@ -1512,15 +1661,10 @@ public class NotebookMe extends JFrame {
 
     // Modern tree cell renderer
     class ModernTreeRenderer extends DefaultTreeCellRenderer {
-        private final Icon libraryIcon = pickIcon("FileView.computerIcon", UIManager.getIcon("FileView.hardDriveIcon"));
-        private final Icon folderClosedIcon = pickIcon("Tree.closedIcon", UIManager.getIcon("FileView.directoryIcon"));
-        private final Icon folderOpenIcon = pickIcon("Tree.openIcon", UIManager.getIcon("FileView.directoryIcon"));
-        private final Icon noteIcon = pickIcon("Tree.leafIcon", UIManager.getIcon("FileView.fileIcon"));
-
-        private Icon pickIcon(String key, Icon fallback) {
-            Icon icon = UIManager.getIcon(key);
-            return icon != null ? icon : fallback;
-        }
+        private final Icon libraryIcon = createIcon("folder");
+        private final Icon folderClosedIcon = createIcon("folder");
+        private final Icon folderOpenIcon = createIcon("folder");
+        private final Icon noteIcon = createIcon("note");
 
         @Override
         public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
@@ -1553,6 +1697,116 @@ public class NotebookMe extends JFrame {
             }
             return label;
         }
+    }
+
+    class EditorTextArea extends JTextArea {
+        private String suggestion = null;
+
+        public EditorTextArea() {
+            super();
+            addCaretListener(e -> checkMathExpression());
+            getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "tabAction");
+            getActionMap().put("tabAction", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (suggestion != null) {
+                        insert(suggestion, getCaretPosition());
+                        suggestion = null;
+                        repaint();
+                    } else {
+                        replaceSelection("\t");
+                    }
+                }
+            });
+        }
+
+        private void checkMathExpression() {
+            suggestion = null;
+            try {
+                int caret = getCaretPosition();
+                int start = javax.swing.text.Utilities.getRowStart(this, caret);
+                String line = getText(start, caret - start).trim();
+                
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:^|.*?\\s)((?:\\-?\\d+(?:\\.\\d+)?)(?:\\s*[\\+\\-\\*\\/]\\s*(?:\\-?\\d+(?:\\.\\d+)?))+)$").matcher(line);
+                if (m.find()) {
+                    String expr = m.group(1).trim();
+                    Double result = eval(expr);
+                    if (result != null) {
+                        String resStr = result == Math.floor(result) ? String.valueOf(result.longValue()) : String.valueOf(result);
+                        suggestion = " = " + resStr;
+                    }
+                }
+            } catch (Exception ex) {}
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (suggestion != null) {
+                try {
+                    Rectangle rect = modelToView(getCaretPosition());
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g2.setFont(getFont());
+                    g2.setColor(ModernUI.withAlpha(getForeground(), 120));
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(suggestion, rect.x, rect.y + fm.getAscent());
+                    g2.dispose();
+                } catch (Exception ex) {}
+            }
+        }
+    }
+
+    private static Double eval(String str) {
+        return new Object() {
+            int pos = -1, ch;
+            void nextChar() { ch = (++pos < str.length()) ? str.charAt(pos) : -1; }
+            boolean eat(int charToEat) {
+                while (ch == ' ') nextChar();
+                if (ch == charToEat) { nextChar(); return true; }
+                return false;
+            }
+            Double parse() {
+                nextChar();
+                double x = parseExpression();
+                if (pos < str.length()) return null;
+                return x;
+            }
+            double parseExpression() {
+                double x = parseTerm();
+                for (;;) {
+                    if      (eat('+')) x += parseTerm();
+                    else if (eat('-')) x -= parseTerm();
+                    else return x;
+                }
+            }
+            double parseTerm() {
+                double x = parseFactor();
+                for (;;) {
+                    if      (eat('*')) x *= parseFactor();
+                    else if (eat('/')) x /= parseFactor();
+                    else return x;
+                }
+            }
+            double parseFactor() {
+                if (eat('+')) return parseFactor();
+                if (eat('-')) return -parseFactor();
+                double x;
+                int startPos = this.pos;
+                if (eat('(')) {
+                    x = parseExpression();
+                    eat(')');
+                } else if ((ch >= '0' && ch <= '9') || ch == '.') {
+                    while ((ch >= '0' && ch <= '9') || ch == '.') nextChar();
+                    x = Double.parseDouble(str.substring(startPos, this.pos));
+                } else {
+                    throw new RuntimeException("Unexpected: " + (char)ch);
+                }
+                if (eat('^')) x = Math.pow(x, parseFactor());
+                return x;
+            }
+        }.parse();
     }
 
     public static void main(String[] args) { SwingUtilities.invokeLater(NotebookMe::new); }

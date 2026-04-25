@@ -51,16 +51,21 @@ public final class ModernUI {
         UIManager.put("CheckBoxMenuItem.selectionBackground", accentSoft(theme));
         UIManager.put("CheckBoxMenuItem.selectionForeground", fg);
         UIManager.put("CheckBoxMenuItem.border", BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        UIManager.put("CheckBoxMenuItem.checkIcon", createCheckIcon(theme, false));
         UIManager.put("RadioButtonMenuItem.background", cardColor(theme));
         UIManager.put("RadioButtonMenuItem.foreground", fg);
         UIManager.put("RadioButtonMenuItem.selectionBackground", accentSoft(theme));
         UIManager.put("RadioButtonMenuItem.selectionForeground", fg);
         UIManager.put("RadioButtonMenuItem.border", BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        UIManager.put("RadioButtonMenuItem.checkIcon", createCheckIcon(theme, true));
         UIManager.put("PopupMenu.background", cardColor(theme));
         UIManager.put("PopupMenu.border", new CompoundBorder(
             new RoundedBorder(border, RADIUS, 1),
             BorderFactory.createEmptyBorder(4, 0, 4, 0)));
         UIManager.put("Separator.foreground", border);
+
+        UIManager.put("CheckBox.icon", createCheckIcon(theme, false));
+        UIManager.put("RadioButton.icon", createCheckIcon(theme, true));
 
         UIManager.put("Button.background", cardColor(theme));
         UIManager.put("Button.foreground", fg);
@@ -344,6 +349,52 @@ public final class ModernUI {
         splitPane.setBorder(null);
         splitPane.setOpaque(false);
         splitPane.setContinuousLayout(true);
+    }
+
+    private static Icon createCheckIcon(Theme theme, boolean isRadio) {
+        return new Icon() {
+            @Override
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                AbstractButton b = (AbstractButton) c;
+                ButtonModel model = b.getModel();
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                
+                int size = getIconWidth();
+                boolean selected = model.isSelected();
+                
+                Color bg = selected ? theme.getAccent() : inputColor(theme);
+                Color border = selected ? mix(theme.getAccent(), theme.getForeground(), 0.1f) : hairline(theme);
+                
+                g2.setColor(bg);
+                if (isRadio) {
+                    g2.fillOval(x, y, size, size);
+                    g2.setColor(border);
+                    g2.drawOval(x, y, size - 1, size - 1);
+                    if (selected) {
+                        g2.setColor(contrastText(bg));
+                        g2.fillOval(x + 4, y + 4, size - 8, size - 8);
+                    }
+                } else {
+                    g2.fillRoundRect(x, y, size, size, 4, 4);
+                    g2.setColor(border);
+                    g2.drawRoundRect(x, y, size - 1, size - 1, 4, 4);
+                    if (selected) {
+                        g2.setColor(contrastText(bg));
+                        g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                        g2.drawLine(x + 3, y + size / 2, x + size / 2 - 1, y + size - 3);
+                        g2.drawLine(x + size / 2 - 1, y + size - 3, x + size - 3, y + 3);
+                    }
+                }
+                g2.dispose();
+            }
+
+            @Override
+            public int getIconWidth() { return 14; }
+
+            @Override
+            public int getIconHeight() { return 14; }
+        };
     }
 
     private static int clamp(int value) {

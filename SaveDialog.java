@@ -23,7 +23,8 @@ public class SaveDialog extends JDialog {
 
         setSize(580, 470);
         setLocationRelativeTo(parent);
-        setResizable(false);
+        setResizable(true);
+        setMinimumSize(new Dimension(580, 470));
         buildUI(parent, suggestedFile);
     }
 
@@ -214,6 +215,7 @@ public class SaveDialog extends JDialog {
 
     private void browseFolder(JFrame parent) {
         JFileChooser chooser = new JFileChooser(currentDir);
+        SwingUtilities.updateComponentTreeUI(chooser);
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         if (chooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
             currentDir = chooser.getSelectedFile();

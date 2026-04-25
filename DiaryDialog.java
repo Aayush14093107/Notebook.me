@@ -101,7 +101,33 @@ class DiaryDialog extends JDialog {
             Window window = SwingUtilities.getWindowAncestor(forgotBtn);
             if (window != null) window.dispose();
         });
-        panel.add(forgotBtn, BorderLayout.SOUTH);
+
+        JButton resetBtn = new JButton("Reset Diary");
+        resetBtn.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        resetBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        resetBtn.setForeground(new Color(220, 70, 70));
+        resetBtn.setContentAreaFilled(false);
+        resetBtn.setBorderPainted(false);
+        resetBtn.addActionListener(e -> {
+            int r = JOptionPane.showConfirmDialog(panel,
+                "This will DELETE all diary entries and reset your PIN.\nThis cannot be undone!\n\nAre you sure?",
+                "Reset Diary", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (r == JOptionPane.YES_OPTION) {
+                if (diaryDir.exists()) {
+                    File[] files = diaryDir.listFiles();
+                    if (files != null) for (File f : files) f.delete();
+                }
+                JOptionPane.showMessageDialog(panel, "Diary reset complete");
+                Window window = SwingUtilities.getWindowAncestor(resetBtn);
+                if (window != null) window.dispose();
+            }
+        });
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 0));
+        btnPanel.setOpaque(false);
+        btnPanel.add(forgotBtn);
+        btnPanel.add(resetBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
 
         int choice = JOptionPane.showConfirmDialog(this, panel, "Diary PIN", JOptionPane.OK_CANCEL_OPTION);
         if (choice == JOptionPane.CLOSED_OPTION) {
