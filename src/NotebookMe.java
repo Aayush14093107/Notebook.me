@@ -1,5 +1,5 @@
 /**
- * notebook.me v6.0.0 - Feature-rich Java Notepad
+ * notebook.me v6.1.1 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
@@ -19,7 +19,7 @@ import javax.swing.undo.*;
 
 public class NotebookMe extends JFrame {
     private static final String APP_NAME = "notebook.me";
-    private static final String VERSION  = "6.0.0";
+    private static final String VERSION  = "6.1.1";
     private static final int SIDEBAR_WIDTH = 280;
     private static int instanceCount = 0;
     private Theme currentTheme;
@@ -423,7 +423,9 @@ public class NotebookMe extends JFrame {
         sideToggleBtn = new JButton(sidebarVisible ? "<" : ">");
         sideToggleBtn.setPreferredSize(new Dimension(34, 34));
         sideToggleBtn.setFont(ModernUI.uiFont(Font.BOLD, 14f));
-        ModernUI.styleButton(sideToggleBtn, currentTheme, "ghost");
+        ModernUI.styleButton(sideToggleBtn, currentTheme, "secondary");
+        sideToggleBtn.setContentAreaFilled(true);
+        sideToggleBtn.setOpaque(true);
         sideToggleBtn.setToolTipText("Toggle sidebar");
         sideToggleBtn.addActionListener(e -> animateSidebar());
         leftStrip.add(sideToggleBtn);
@@ -1508,7 +1510,7 @@ public class NotebookMe extends JFrame {
 
     private void showWelcome() {
         getCurrentTextArea().setText(
-            "Welcome to notebook.me v6.0.0 by noicOrg\n" +
+            "Welcome to notebook.me v" + VERSION + " by Vervain Labs\n" +
             "------------------------------------------\n\n" +
             "Start typing, open a file, or create a note from the Library.\n\n" +
             "Quick keys:\n" +
@@ -1524,7 +1526,7 @@ public class NotebookMe extends JFrame {
     private void showShortcuts() { JOptionPane.showMessageDialog(this,"Ctrl+N  New tab\nCtrl+O  Open\nCtrl+S  Save\nCtrl+W  Close tab\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Y  Redo\nCtrl+F  Find & Replace\nCtrl+D  Highlight All\nCtrl+M  Markdown Preview\nF11  Fullscreen\nESC  Exit fullscreen\nCtrl++/- Zoom","Shortcuts",JOptionPane.INFORMATION_MESSAGE); }
     private void showAbout() {
         JDialog aboutDlg = new JDialog(this, "About", true);
-        aboutDlg.setSize(520, 560);
+        aboutDlg.setSize(560, 600);
         aboutDlg.setLocationRelativeTo(this);
         
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
@@ -1535,11 +1537,21 @@ public class NotebookMe extends JFrame {
         String aboutText = "<html><body><h2 style='color:" + hex + "'>Notebook.Me</h2>" +
                            "<p style='color:" + hex + ";width:350px;font-size:11px;'>" +
                            "A smart and minimal note-taking app designed to help users write, organize, and manage their notes efficiently.<br><br>" +
-                           "Built on Java<br>Built by noicOrg, a team of two.<br>Current version " + VERSION + "<br><br>" +
+                           "Built on Java<br>Developed by Vervain Labs.<br>Current version " + VERSION + "<br><br>" +
                            "<b>User trust statement:</b><br>Your privacy matters to us. Your notes remain secure and accessible only to you.<br><br>" +
                            "Instances: " + instanceCount + "</p></body></html>";
         JLabel textLabel = new JLabel(aboutText);
-        mainPanel.add(textLabel, BorderLayout.NORTH);
+
+        JPanel aboutHeader = new JPanel(new BorderLayout(12, 0));
+        aboutHeader.setOpaque(false);
+        ImageIcon vervainLogo = loadScaledResourceIcon("vervain-logo.png", 112, 112);
+        if (vervainLogo != null) {
+            JLabel logoLabel = new JLabel(vervainLogo, SwingConstants.CENTER);
+            logoLabel.setPreferredSize(new Dimension(126, 116));
+            aboutHeader.add(logoLabel, BorderLayout.WEST);
+        }
+        aboutHeader.add(textLabel, BorderLayout.CENTER);
+        mainPanel.add(aboutHeader, BorderLayout.NORTH);
         
         JPanel tttPanel = new JPanel(new BorderLayout(5, 5));
         tttPanel.setOpaque(false);
@@ -1587,6 +1599,43 @@ public class NotebookMe extends JFrame {
         mainPanel.add(tttPanel, BorderLayout.CENTER);
         aboutDlg.setContentPane(mainPanel);
         aboutDlg.setVisible(true);
+    }
+
+    private ImageIcon loadScaledResourceIcon(String resourceName, int maxWidth, int maxHeight) {
+        java.net.URL imageUrl = getClass().getResource("/" + resourceName);
+        if (imageUrl == null) return null;
+
+        Image image;
+        int width;
+        int height;
+        try {
+            java.awt.image.BufferedImage original = javax.imageio.ImageIO.read(imageUrl);
+            if (original == null) return null;
+
+            width = original.getWidth();
+            height = original.getHeight();
+            int cropSize = Math.min(width, height);
+            if (Math.max(width, height) / (double) cropSize > 1.2) {
+                cropSize = (int) Math.round(cropSize * 0.62);
+            }
+            int cropX = Math.max(0, (width - cropSize) / 2);
+            int cropY = Math.max(0, (height - cropSize) / 2);
+            image = original.getSubimage(cropX, cropY, cropSize, cropSize);
+            width = cropSize;
+            height = cropSize;
+        } catch (IOException ex) {
+            ImageIcon original = new ImageIcon(imageUrl);
+            width = original.getIconWidth();
+            height = original.getIconHeight();
+            if (width <= 0 || height <= 0) return null;
+            image = original.getImage();
+        }
+
+        double scale = Math.min(maxWidth / (double) width, maxHeight / (double) height);
+        int scaledWidth = Math.max(1, (int) Math.round(width * scale));
+        int scaledHeight = Math.max(1, (int) Math.round(height * scale));
+        Image scaledImage = image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH);
+        return new ImageIcon(scaledImage);
     }
     
     private boolean checkWin(JButton[] b, String p) {

@@ -2,7 +2,7 @@
 setlocal
 pushd "%~dp0"
 echo =============================================
-echo   notebook.me v6.0.0 - Jar Build
+echo   notebook.me v6.1.1 - Jar Build
 echo =============================================
 echo.
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-portable.ps1" -JarOnly

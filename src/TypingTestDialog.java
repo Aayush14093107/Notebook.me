@@ -85,7 +85,7 @@ class TypingTestDialog extends JDialog {
         modeBox.addActionListener(e -> {
             currentMode = modeBox.getSelectedIndex();
             sampleText = pickSample();
-            sampleArea.setText(sampleText);
+            resetTestForModeChange();
         });
         timerLabel = new JLabel("Pick a duration");
         timerLabel.setFont(ModernUI.monoFont(Font.BOLD, 18f));
@@ -218,6 +218,24 @@ class TypingTestDialog extends JDialog {
         timerLabel.setText(formatTime(timeLeft));
         restartButton.setEnabled(false);
         startCountdownTimer();
+    }
+
+    private void resetTestForModeChange() {
+        if (countdownTimer != null) countdownTimer.stop();
+        testStarted = false;
+        testFinished = false;
+        durationSecs = 0;
+        timeLeft = 0;
+
+        if (sampleArea != null) sampleArea.setText(sampleText);
+        if (typingArea != null) {
+            typingArea.setText("");
+            typingArea.setEnabled(false);
+        }
+        if (resultLabel != null) resultLabel.setText("Ready when you are");
+        if (statsLabel != null) statsLabel.setText(" ");
+        if (timerLabel != null) timerLabel.setText("Pick a duration");
+        if (restartButton != null) restartButton.setEnabled(false);
     }
 
     private void startCountdownTimer() {
