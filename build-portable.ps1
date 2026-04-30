@@ -113,7 +113,7 @@ if ($Clean) {
 Remove-SafeDirectory $ClassesDir
 New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
 
-$Sources = @(Get-ChildItem -LiteralPath $ProjectRoot -Filter "*.java" -File | Sort-Object Name)
+$Sources = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "src") -Filter "*.java" -Recurse -File | Sort-Object Name)
 if ($Sources.Count -eq 0) {
     throw "No Java source files were found."
 }
@@ -126,7 +126,7 @@ $JavacArgs = @("-encoding", "UTF-8", "--release", "11", "-d", $ClassesDir) + @($
 Invoke-Tool $Javac $JavacArgs
 
 Write-Host "Copying resources..."
-Get-ChildItem -LiteralPath $ProjectRoot -Filter "*.png" -File | Copy-Item -Destination $ClassesDir -Force
+Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "res") -File | Copy-Item -Destination $ClassesDir -Force
 
 Write-Host "[2/4] Packaging NotebookMe.jar..."
 $JarArgs = @("cfm", $JarFile, $ManifestFile, "-C", $ClassesDir, ".")

@@ -36,10 +36,13 @@ JLINK=$(find_jdk_tool jlink)
 
 rm -rf "$CLASSES_DIR"
 mkdir -p "$CLASSES_DIR"
-find "$SCRIPT_DIR" -maxdepth 1 -name '*.java' -print | sort > "$BUILD_DIR/sources.txt"
+find "$SCRIPT_DIR/src" -name '*.java' -print | sort > "$BUILD_DIR/sources.txt"
 
 printf '[1/4] Compiling Java sources...\n'
 "$JAVAC" -encoding UTF-8 --release 11 -d "$CLASSES_DIR" @"$BUILD_DIR/sources.txt"
+
+printf 'Copying resources...\n'
+cp "$SCRIPT_DIR/res/"* "$CLASSES_DIR/"
 
 printf '[2/4] Packaging NotebookMe.jar...\n'
 "$JAR" cfm "$JAR_FILE" "$SCRIPT_DIR/MANIFEST.MF" -C "$CLASSES_DIR" .

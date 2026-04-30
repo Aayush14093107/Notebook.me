@@ -1101,15 +1101,15 @@ public class NotebookMe extends JFrame {
     /** Smooth slide animation for sidebar toggle */
     private void animateSidebar() {
         final int targetWidth = SIDEBAR_WIDTH;
-        final int step = 15;
         final int delay = 12; // ms per frame
         if (sidebarVisible) {
             // Slide closed
             javax.swing.Timer timer = new javax.swing.Timer(delay, null);
             timer.addActionListener(e -> {
                 int current = splitPane.getDividerLocation();
-                if (current > step) {
-                    splitPane.setDividerLocation(current - step);
+                int step = Math.max(2, current / 6); // Ease out
+                if (current > 0) {
+                    splitPane.setDividerLocation(Math.max(0, current - step));
                 } else {
                     splitPane.setDividerLocation(0);
                     splitPane.getLeftComponent().setVisible(false);
@@ -1124,12 +1124,16 @@ public class NotebookMe extends JFrame {
             // Slide open
             splitPane.getLeftComponent().setVisible(true);
             splitPane.setDividerSize(1);
-            splitPane.setDividerLocation(0);
+            if (splitPane.getDividerLocation() <= 0) {
+                splitPane.setDividerLocation(1);
+            }
             javax.swing.Timer timer = new javax.swing.Timer(delay, null);
             timer.addActionListener(e -> {
                 int current = splitPane.getDividerLocation();
-                if (current < targetWidth - step) {
-                    splitPane.setDividerLocation(current + step);
+                int remaining = targetWidth - current;
+                int step = Math.max(2, remaining / 6); // Ease out
+                if (current < targetWidth) {
+                    splitPane.setDividerLocation(Math.min(targetWidth, current + step));
                 } else {
                     splitPane.setDividerLocation(targetWidth);
                     sidebarVisible = true;

@@ -5,15 +5,23 @@ class TypingTestDialog extends JDialog {
     private static final String[][] SAMPLE_TEXTS = {
         {
             "The quick brown fox jumps over the lazy dog. Programming is the art of telling another human what one wants the computer to do. Every great developer you know got there by solving problems they were unqualified to solve until they actually did it.",
-            "In the middle of difficulty lies opportunity. The only way to do great work is to love what you do. Innovation distinguishes between a leader and a follower. Stay hungry, stay foolish, and never stop learning new things every single day."
+            "In the middle of difficulty lies opportunity. The only way to do great work is to love what you do. Innovation distinguishes between a leader and a follower. Stay hungry, stay foolish, and never stop learning new things every single day.",
+            "Careful work often looks quiet from the outside. A clean notebook, a few honest questions, and one patient revision can turn a rough idea into something sturdy enough to share.",
+            "Morning light settled across the desk while the city gathered its noise. She opened the file, found the hidden bug, and smiled at the small kindness of a test that failed clearly.",
+            "Good tools disappear into the rhythm of the task. They leave just enough friction to keep your attention awake and just enough comfort to help you keep going."
         },
         {
             "the quick brown fox jumps over the lazy dog programming is the art of telling another human what one wants the computer to do every great developer you know got there by solving problems they were unqualified to solve",
-            "in the middle of difficulty lies opportunity the only way to do great work is to love what you do innovation distinguishes between a leader and a follower stay hungry stay foolish and never stop learning"
+            "in the middle of difficulty lies opportunity the only way to do great work is to love what you do innovation distinguishes between a leader and a follower stay hungry stay foolish and never stop learning",
+            "steady practice turns awkward keys into familiar paths each sentence gives your hands a little more confidence and each mistake shows exactly where to slow down",
+            "clear notes save time later because memory is generous in the moment and surprisingly vague when the deadline returns",
+            "small steps compound over long afternoons until the work that once felt heavy begins to move with surprising ease"
         },
         {
             "The server has 128 GB of RAM and 24 CPU cores running at 3.6 GHz. In 2024 over 500 million users accessed the platform. The total cost was $49.99 per month for 12 months totaling $599.88 annually.",
-            "Order 4521 contains 3 items weighing 2.5 kg each for a total of 7.5 kg. The package dimensions are 40 x 30 x 20 cm. Shipping to zone 7 costs $15.75 with a 2 to 5 business day delivery window."
+            "Order 4521 contains 3 items weighing 2.5 kg each for a total of 7.5 kg. The package dimensions are 40 x 30 x 20 cm. Shipping to zone 7 costs $15.75 with a 2 to 5 business day delivery window.",
+            "At 9:15 AM the backup copied 42 files in 18 seconds, then verified 42 checksums with 0 errors. The final archive measured 73.4 MB.",
+            "Recipe version 3 uses 250 g of flour, 125 g of butter, and 80 g of sugar. Bake at 180 C for 22 minutes before cooling for 10 minutes."
         }
     };
 
@@ -23,6 +31,7 @@ class TypingTestDialog extends JDialog {
     private JLabel timerLabel;
     private JLabel resultLabel;
     private JLabel statsLabel;
+    private JButton restartButton;
     private int durationSecs;
     private int timeLeft;
     private javax.swing.Timer countdownTimer;
@@ -84,6 +93,12 @@ class TypingTestDialog extends JDialog {
         controls.add(modeLabel);
         controls.add(modeBox);
         controls.add(Box.createHorizontalStrut(8));
+        restartButton = new JButton("Restart (same text)");
+        ModernUI.styleButton(restartButton, theme, "secondary");
+        restartButton.setEnabled(false);
+        restartButton.addActionListener(e -> restartSameText());
+        controls.add(restartButton);
+        controls.add(Box.createHorizontalStrut(8));
         controls.add(durationButton("30s", 30));
         controls.add(durationButton("60s", 60));
         controls.add(durationButton("5m", 300));
@@ -95,6 +110,11 @@ class TypingTestDialog extends JDialog {
         sampleArea = area(sampleText, true);
         typingArea = area("", false);
         typingArea.setEnabled(false);
+        typingArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
+        });
 
         SurfacePanel sampleShell = surfaceCard("Text to type", sampleArea);
         SurfacePanel typingShell = surfaceCard("Start typing", typingArea);
@@ -178,7 +198,29 @@ class TypingTestDialog extends JDialog {
         timerLabel.setText(formatTime(timeLeft));
         sampleText = pickSample();
         sampleArea.setText(sampleText);
+        restartButton.setEnabled(false);
 
+        startCountdownTimer();
+    }
+
+    private void restartSameText() {
+        if (!testStarted) return;
+
+        if (countdownTimer != null) countdownTimer.stop();
+        timeLeft = durationSecs;
+        testStarted = true;
+        testFinished = false;
+        typingArea.setText("");
+        typingArea.setEnabled(true);
+        typingArea.requestFocus();
+        resultLabel.setText(" ");
+        statsLabel.setText(" ");
+        timerLabel.setText(formatTime(timeLeft));
+        restartButton.setEnabled(false);
+        startCountdownTimer();
+    }
+
+    private void startCountdownTimer() {
         if (countdownTimer != null) countdownTimer.stop();
         countdownTimer = new javax.swing.Timer(1000, e -> {
             timeLeft--;
@@ -189,6 +231,12 @@ class TypingTestDialog extends JDialog {
             }
         });
         countdownTimer.start();
+    }
+
+    private void enableRestartIfTyping() {
+        if (restartButton != null && testStarted && !testFinished && typingArea.getDocument().getLength() > 0) {
+            restartButton.setEnabled(true);
+        }
     }
 
     private void endTest() {

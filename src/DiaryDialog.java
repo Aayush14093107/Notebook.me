@@ -1,13 +1,23 @@
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 class DiaryDialog extends JDialog {
+    private static final String ENCRYPTED_ENTRY_HEADER = "NOTEBOOKME_DIARY_AES128_V1\n";
+    private static final int AES_KEY_BYTES = 16;
+    private static final int AES_BLOCK_BYTES = 16;
     private static final String[] SECURITY_QUESTIONS = {
         "What is your pet's name?",
         "What city were you born in?",
@@ -22,6 +32,8 @@ class DiaryDialog extends JDialog {
     private DefaultListModel<String> listModel;
     private JTextArea entryArea;
     private String currentDate;
+    private JLabel countLabel;
+    private SecretKeySpec diaryKey;
 
     public DiaryDialog(JFrame parent, Theme theme, File notebookDir) {
         super(parent, "Diary Mode", true);
@@ -78,6 +90,7 @@ class DiaryDialog extends JDialog {
             try {
                 Files.writeString(pinFile.toPath(), hashPin(first));
                 Files.writeString(securityFile.toPath(), questionBox.getSelectedIndex() + "\n" + hashPin(answer.toLowerCase()));
+                diaryKey = deriveAESKey(first);
                 return true;
             } catch (IOException ex) {
                 return false;
@@ -97,9 +110,13 @@ class DiaryDialog extends JDialog {
         forgotBtn.setForeground(new Color(70, 130, 220));
         forgotBtn.setContentAreaFilled(false);
         forgotBtn.setBorderPainted(false);
+        final boolean[] forgotPINHandled = {false};
         forgotBtn.addActionListener(e -> {
-            Window window = SwingUtilities.getWindowAncestor(forgotBtn);
-            if (window != null) window.dispose();
+            forgotPINHandled[0] = handleForgotPIN(pinFile, securityFile);
+            if (forgotPINHandled[0]) {
+                Window window = SwingUtilities.getWindowAncestor(forgotBtn);
+                if (window != null) window.dispose();
+            }
         });
 
         JButton resetBtn = new JButton("Reset Diary");
@@ -130,18 +147,21 @@ class DiaryDialog extends JDialog {
         panel.add(btnPanel, BorderLayout.SOUTH);
 
         int choice = JOptionPane.showConfirmDialog(this, panel, "Diary PIN", JOptionPane.OK_CANCEL_OPTION);
+        if (forgotPINHandled[0]) return true;
         if (choice == JOptionPane.CLOSED_OPTION) {
-            return handleForgotPIN(pinFile, securityFile);
+            return false;
         }
         if (choice != JOptionPane.OK_OPTION) return false;
 
         try {
             String stored = Files.readString(pinFile.toPath()).trim();
-            String entered = hashPin(new String(pinField.getPassword()));
+            String enteredPIN = new String(pinField.getPassword());
+            String entered = hashPin(enteredPIN);
             if (!stored.equals(entered)) {
                 JOptionPane.showMessageDialog(this, "Wrong PIN!", "Access denied", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
+            diaryKey = deriveAESKey(enteredPIN);
             return true;
         } catch (IOException ex) {
             return false;
@@ -192,6 +212,7 @@ class DiaryDialog extends JDialog {
             }
 
             Files.writeString(pinFile.toPath(), hashPin(first));
+            diaryKey = deriveAESKey(first);
             JOptionPane.showMessageDialog(this, "PIN reset successfully.");
             return true;
         } catch (Exception ex) {
@@ -209,6 +230,64 @@ class DiaryDialog extends JDialog {
             return builder.toString();
         } catch (Exception ex) {
             return pin;
+        }
+    }
+
+    private SecretKeySpec deriveAESKey(String pin) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(pin.getBytes(StandardCharsets.UTF_8));
+            return new SecretKeySpec(Arrays.copyOf(hash, AES_KEY_BYTES), "AES");
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to derive diary encryption key.", ex);
+        }
+    }
+
+    private byte[] encryptEntry(String text) throws Exception {
+        if (diaryKey == null) throw new IllegalStateException("Diary encryption key is unavailable.");
+
+        byte[] iv = new byte[AES_BLOCK_BYTES];
+        new SecureRandom().nextBytes(iv);
+
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, diaryKey, new IvParameterSpec(iv));
+        byte[] encrypted = cipher.doFinal(text.getBytes(StandardCharsets.UTF_8));
+
+        byte[] payload = new byte[iv.length + encrypted.length];
+        System.arraycopy(iv, 0, payload, 0, iv.length);
+        System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
+
+        String encoded = ENCRYPTED_ENTRY_HEADER + Base64.getEncoder().encodeToString(payload);
+        return encoded.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String decryptEntry(byte[] fileBytes) throws Exception {
+        if (diaryKey == null) throw new IllegalStateException("Diary encryption key is unavailable.");
+
+        String stored = new String(fileBytes, StandardCharsets.UTF_8);
+        if (!stored.startsWith(ENCRYPTED_ENTRY_HEADER)) {
+            throw new IllegalArgumentException("Entry is not encrypted.");
+        }
+
+        byte[] payload = Base64.getDecoder().decode(stored.substring(ENCRYPTED_ENTRY_HEADER.length()).trim());
+        if (payload.length <= AES_BLOCK_BYTES) {
+            throw new IllegalArgumentException("Encrypted entry is incomplete.");
+        }
+
+        byte[] iv = Arrays.copyOfRange(payload, 0, AES_BLOCK_BYTES);
+        byte[] encrypted = Arrays.copyOfRange(payload, AES_BLOCK_BYTES, payload.length);
+
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, diaryKey, new IvParameterSpec(iv));
+        return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+    }
+
+    private String readEntryText(File entryFile) throws IOException {
+        byte[] fileBytes = Files.readAllBytes(entryFile.toPath());
+        try {
+            return decryptEntry(fileBytes);
+        } catch (Exception ex) {
+            return Files.readString(entryFile.toPath());
         }
     }
 
@@ -283,8 +362,19 @@ class DiaryDialog extends JDialog {
         entryArea.setForeground(theme.getForeground());
         entryArea.setCaretColor(theme.getAccent());
         entryArea.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
+        entryArea.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { updateEntryCount(); }
+            public void removeUpdate(DocumentEvent e) { updateEntryCount(); }
+            public void changedUpdate(DocumentEvent e) { updateEntryCount(); }
+        });
         JScrollPane editScroll = new JScrollPane(entryArea);
         ModernUI.styleScrollPane(editScroll, theme, ModernUI.editorColor(theme));
+        countLabel = new JLabel();
+        countLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        countLabel.setFont(ModernUI.monoFont(Font.PLAIN, 12f));
+        countLabel.setForeground(ModernUI.mix(theme.getForeground(), theme.getAccent(), 0.14f));
+        countLabel.setBorder(BorderFactory.createEmptyBorder(6, 10, 2, 10));
+        updateEntryCount();
 
         SurfacePanel listShell = new SurfacePanel(new BorderLayout(), ModernUI.panelColor(theme), ModernUI.hairline(theme), ModernUI.RADIUS);
         listShell.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
@@ -293,6 +383,7 @@ class DiaryDialog extends JDialog {
         SurfacePanel editShell = new SurfacePanel(new BorderLayout(), ModernUI.panelColor(theme), ModernUI.hairline(theme), ModernUI.RADIUS);
         editShell.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         editShell.add(editScroll, BorderLayout.CENTER);
+        editShell.add(countLabel, BorderLayout.SOUTH);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listShell, editShell);
         split.setDividerLocation(190);
@@ -332,7 +423,7 @@ class DiaryDialog extends JDialog {
         File entryFile = new File(diaryDir, date + ".txt");
         if (entryFile.exists()) {
             try {
-                entryArea.setText(Files.readString(entryFile.toPath()));
+                entryArea.setText(readEntryText(entryFile));
                 entryArea.setCaretPosition(0);
             } catch (IOException ex) {
                 entryArea.setText("");
@@ -347,10 +438,18 @@ class DiaryDialog extends JDialog {
         if (currentDate == null) return;
         File entryFile = new File(diaryDir, currentDate + ".txt");
         try {
-            Files.writeString(entryFile.toPath(), entryArea.getText());
-        } catch (IOException ex) {
+            Files.write(entryFile.toPath(), encryptEntry(entryArea.getText()));
+        } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Failed to save entry.");
         }
+    }
+
+    private void updateEntryCount() {
+        if (entryArea == null || countLabel == null) return;
+        String text = entryArea.getText();
+        String trimmed = text.trim();
+        int words = trimmed.isEmpty() ? 0 : trimmed.split("\\s+").length;
+        countLabel.setText(String.format(Locale.US, "%,d words \u00b7 %,d characters", words, text.length()));
     }
 
     private void deleteEntry() {
