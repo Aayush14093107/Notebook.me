@@ -2,7 +2,7 @@
 setlocal
 pushd "%~dp0"
 echo =============================================
-echo   notebook.me v6.1.1 - Jar Build
+echo   notebook.me v6.1.2 - Jar Build
 echo =============================================
 echo.
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-portable.ps1" -JarOnly
@@ -14,8 +14,8 @@ if not "%BUILD_EXIT%"=="0" (
     pause
     exit /b %BUILD_EXIT%
 )
-echo   Output: NotebookMe.jar
-echo   Run with: java -jar NotebookMe.jar
+echo   Output: dist\NotebookMe.jar
+echo   Run with: java -jar dist\NotebookMe.jar
 echo.
 echo =============================================
 pause

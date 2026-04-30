@@ -1,4 +1,4 @@
-# Notebook.Me v6.1.1
+# Notebook.Me v6.1.2
 
 Feature-rich Java notebook app.
 
@@ -10,7 +10,7 @@ Run:
 build.bat
 ```
 
-This creates `NotebookMe.jar`. Running that jar directly still requires Java on
+This creates `dist\\NotebookMe.jar`. Running that jar directly still requires Java on
 the computer.
 
 ## Build the portable app

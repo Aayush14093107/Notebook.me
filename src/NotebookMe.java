@@ -1,5 +1,5 @@
 /**
- * notebook.me v6.1.1 - Feature-rich Java Notepad
+ * notebook.me v6.1.2 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
@@ -19,7 +19,7 @@ import javax.swing.undo.*;
 
 public class NotebookMe extends JFrame {
     private static final String APP_NAME = "notebook.me";
-    private static final String VERSION  = "6.1.1";
+    private static final String VERSION  = "6.1.2";
     private static final int SIDEBAR_WIDTH = 280;
     private static int instanceCount = 0;
     private Theme currentTheme;
@@ -1098,6 +1098,9 @@ public class NotebookMe extends JFrame {
                 if(scanlineOverlay!=null)scanlineOverlay.setBounds(0,0,getWidth(),getHeight());
             }});
         }
+        if (currentTheme instanceof CRTTheme && !isFullScreen) {
+            SwingUtilities.invokeLater(this::toggleFullScreen);
+        }
     }
 
     /** Smooth slide animation for sidebar toggle */
@@ -1523,7 +1526,146 @@ public class NotebookMe extends JFrame {
         getCurrentTextArea().setCaretPosition(0); TabData td=currentTab(); if(td!=null){td.modified=false;td.lastSaved=getCurrentTextArea().getText();}
     }
 
-    private void showShortcuts() { JOptionPane.showMessageDialog(this,"Ctrl+N  New tab\nCtrl+O  Open\nCtrl+S  Save\nCtrl+W  Close tab\nCtrl+Shift+S  Save As\nCtrl+Z  Undo\nCtrl+Y  Redo\nCtrl+F  Find & Replace\nCtrl+D  Highlight All\nCtrl+M  Markdown Preview\nF11  Fullscreen\nESC  Exit fullscreen\nCtrl++/- Zoom","Shortcuts",JOptionPane.INFORMATION_MESSAGE); }
+    private void showShortcuts() {
+        JDialog shortcutsDlg = new JDialog(this, "Keyboard Shortcuts", true);
+        shortcutsDlg.setSize(540, 610);
+        shortcutsDlg.setMinimumSize(new Dimension(460, 500));
+        shortcutsDlg.setLocationRelativeTo(this);
+
+        GradientPanel root = new GradientPanel(
+            new BorderLayout(0, 12),
+            currentTheme.getBackground(),
+            currentTheme.getBackground(),
+            null,
+            0);
+        root.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+
+        JPanel header = ModernUI.transparentPanel(new BorderLayout(12, 0));
+        JLabel icon = new JLabel(createInfoIcon(42, currentTheme));
+        header.add(icon, BorderLayout.WEST);
+
+        JPanel titleStack = new JPanel();
+        titleStack.setOpaque(false);
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        JLabel title = new JLabel("Keyboard Shortcuts");
+        title.setFont(ModernUI.uiFont(Font.BOLD, 20f));
+        title.setForeground(currentTheme.getForeground());
+        JLabel subtitle = new JLabel("Fast actions for everyday note editing");
+        subtitle.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        subtitle.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 150));
+        titleStack.add(title);
+        titleStack.add(Box.createVerticalStrut(3));
+        titleStack.add(subtitle);
+        header.add(titleStack, BorderLayout.CENTER);
+        root.add(header, BorderLayout.NORTH);
+
+        JPanel rows = new JPanel();
+        rows.setOpaque(false);
+        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+
+        SurfacePanel listPanel = new SurfacePanel(
+            new BorderLayout(),
+            ModernUI.panelColor(currentTheme),
+            ModernUI.hairline(currentTheme),
+            ModernUI.RADIUS);
+        listPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        String[][] shortcuts = {
+            {"Ctrl+N", "New tab"},
+            {"Ctrl+O", "Open file"},
+            {"Ctrl+S", "Save"},
+            {"Ctrl+Shift+S", "Save as"},
+            {"Ctrl+W", "Close tab"},
+            {"Ctrl+Z", "Undo"},
+            {"Ctrl+Y", "Redo"},
+            {"Ctrl+F", "Find and replace"},
+            {"Ctrl+D", "Highlight all"},
+            {"Ctrl+M", "Markdown preview"},
+            {"Ctrl++ / Ctrl+-", "Zoom"},
+            {"F11 / Esc", "Fullscreen"}
+        };
+
+        for (String[] shortcut : shortcuts) {
+            rows.add(shortcutRow(shortcut[0], shortcut[1]));
+            rows.add(Box.createVerticalStrut(4));
+        }
+
+        JScrollPane shortcutScroll = new JScrollPane(rows);
+        ModernUI.styleScrollPane(shortcutScroll, currentTheme, ModernUI.panelColor(currentTheme));
+        shortcutScroll.setBorder(BorderFactory.createEmptyBorder());
+        listPanel.add(shortcutScroll, BorderLayout.CENTER);
+        root.add(listPanel, BorderLayout.CENTER);
+
+        JPanel footer = ModernUI.transparentPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        JButton closeBtn = new JButton("Close");
+        ModernUI.styleButton(closeBtn, currentTheme, "primary");
+        closeBtn.addActionListener(e -> shortcutsDlg.dispose());
+        footer.add(closeBtn);
+        root.add(footer, BorderLayout.SOUTH);
+
+        shortcutsDlg.setContentPane(root);
+        shortcutsDlg.getRootPane().setDefaultButton(closeBtn);
+        shortcutsDlg.setVisible(true);
+    }
+
+    private JPanel shortcutRow(String key, String action) {
+        JPanel row = ModernUI.transparentPanel(new BorderLayout(16, 0));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        row.setPreferredSize(new Dimension(0, 36));
+        row.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        JLabel keyLabel = shortcutKey(key);
+        keyLabel.setPreferredSize(new Dimension(124, 30));
+        row.add(keyLabel, BorderLayout.WEST);
+        row.add(shortcutAction(action), BorderLayout.CENTER);
+        return row;
+    }
+
+    private JLabel shortcutKey(String text) {
+        JLabel label = new JLabel(text);
+        label.setOpaque(true);
+        label.setBackground(ModernUI.inputColor(currentTheme));
+        label.setForeground(ModernUI.mix(currentTheme.getForeground(), currentTheme.getAccent(), 0.18f));
+        label.setFont(ModernUI.monoFont(Font.BOLD, 12f));
+        label.setBorder(BorderFactory.createCompoundBorder(
+            new RoundedBorder(ModernUI.hairline(currentTheme), ModernUI.RADIUS, 1),
+            BorderFactory.createEmptyBorder(6, 9, 6, 9)));
+        return label;
+    }
+
+    private JLabel shortcutAction(String text) {
+        JLabel label = new JLabel(text);
+        label.setForeground(currentTheme.getForeground());
+        label.setFont(ModernUI.uiFont(Font.PLAIN, 13f));
+        return label;
+    }
+
+    private Icon createInfoIcon(int size, Theme theme) {
+        return new Icon() {
+            public int getIconWidth() { return size; }
+            public int getIconHeight() { return size; }
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fill = ModernUI.accentSoft(theme);
+                Color stroke = ModernUI.mix(theme.getAccent(), theme.getForeground(), 0.20f);
+                g2.setColor(fill);
+                g2.fillOval(x, y, size - 1, size - 1);
+                g2.setColor(stroke);
+                g2.setStroke(new BasicStroke(1.4f));
+                g2.drawOval(x, y, size - 1, size - 1);
+                g2.setColor(ModernUI.contrastText(fill));
+                g2.setFont(ModernUI.uiFont(Font.BOLD, size * 0.58f));
+                FontMetrics fm = g2.getFontMetrics();
+                String info = "i";
+                int textX = x + (size - fm.stringWidth(info)) / 2;
+                int textY = y + (size - fm.getHeight()) / 2 + fm.getAscent() - 1;
+                g2.drawString(info, textX, textY);
+                g2.dispose();
+            }
+        };
+    }
+
     private void showAbout() {
         JDialog aboutDlg = new JDialog(this, "About", true);
         aboutDlg.setSize(560, 600);
@@ -1541,6 +1683,22 @@ public class NotebookMe extends JFrame {
                            "<b>User trust statement:</b><br>Your privacy matters to us. Your notes remain secure and accessible only to you.<br><br>" +
                            "Instances: " + instanceCount + "</p></body></html>";
         JLabel textLabel = new JLabel(aboutText);
+        JLabel githubLabel = new JLabel("<html><a style='color:" + hex + ";text-decoration:none;' href='#'>github.com/VervainLabs</a></html>");
+        githubLabel.setFont(ModernUI.uiFont(Font.BOLD, 12f));
+        githubLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        githubLabel.setToolTipText("Open Vervain Labs on GitHub");
+        githubLabel.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                openExternalLink("https://github.com/VervainLabs");
+            }
+        });
+
+        JPanel infoStack = new JPanel();
+        infoStack.setOpaque(false);
+        infoStack.setLayout(new BoxLayout(infoStack, BoxLayout.Y_AXIS));
+        infoStack.add(textLabel);
+        infoStack.add(Box.createVerticalStrut(4));
+        infoStack.add(githubLabel);
 
         JPanel aboutHeader = new JPanel(new BorderLayout(12, 0));
         aboutHeader.setOpaque(false);
@@ -1550,7 +1708,7 @@ public class NotebookMe extends JFrame {
             logoLabel.setPreferredSize(new Dimension(126, 116));
             aboutHeader.add(logoLabel, BorderLayout.WEST);
         }
-        aboutHeader.add(textLabel, BorderLayout.CENTER);
+        aboutHeader.add(infoStack, BorderLayout.CENTER);
         mainPanel.add(aboutHeader, BorderLayout.NORTH);
         
         JPanel tttPanel = new JPanel(new BorderLayout(5, 5));
@@ -1599,6 +1757,16 @@ public class NotebookMe extends JFrame {
         mainPanel.add(tttPanel, BorderLayout.CENTER);
         aboutDlg.setContentPane(mainPanel);
         aboutDlg.setVisible(true);
+    }
+
+    private void openExternalLink(String url) {
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().browse(new java.net.URI(url));
+            }
+        } catch (Exception ex) {
+            showError("Could not open link:\n" + url);
+        }
     }
 
     private ImageIcon loadScaledResourceIcon(String resourceName, int maxWidth, int maxHeight) {

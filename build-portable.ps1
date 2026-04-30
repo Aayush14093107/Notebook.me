@@ -103,7 +103,8 @@ function Invoke-Tool {
 $BuildDir = Join-Path $ProjectRoot "build"
 $ClassesDir = Join-Path $BuildDir "classes"
 $JarFile = Join-Path $BuildDir "NotebookMe.jar"
-$RootJarFile = Join-Path $ProjectRoot "NotebookMe.jar"
+$DistDir = Join-Path $ProjectRoot "dist"
+$RootJarFile = Join-Path $DistDir "NotebookMe.jar"
 $ManifestFile = Join-Path $ProjectRoot "MANIFEST.MF"
 
 if ($Clean) {
@@ -112,6 +113,7 @@ if ($Clean) {
 
 Remove-SafeDirectory $ClassesDir
 New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
+New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 
 $Sources = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "src") -Filter "*.java" -Recurse -File | Sort-Object Name)
 if ($Sources.Count -eq 0) {

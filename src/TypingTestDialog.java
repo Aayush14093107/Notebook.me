@@ -60,12 +60,13 @@ class TypingTestDialog extends JDialog {
         setContentPane(root);
 
         GradientPanel header = new GradientPanel(
-            new BorderLayout(),
+            new BorderLayout(12, 8),
             ModernUI.panelColor(theme),
             ModernUI.panelColor(theme),
             ModernUI.hairline(theme),
             ModernUI.RADIUS);
         header.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        header.setPreferredSize(new Dimension(0, 96));
 
         JPanel titleStack = new JPanel();
         titleStack.setOpaque(false);
@@ -74,7 +75,7 @@ class TypingTestDialog extends JDialog {
         title.setFont(ModernUI.uiFont(Font.BOLD, 18f));
         title.setForeground(theme.getForeground());
         titleStack.add(title);
-        header.add(titleStack, BorderLayout.WEST);
+        header.add(titleStack, BorderLayout.NORTH);
 
         JPanel controls = ModernUI.transparentPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         JLabel modeLabel = new JLabel("Mode");
@@ -88,7 +89,7 @@ class TypingTestDialog extends JDialog {
             resetTestForModeChange();
         });
         timerLabel = new JLabel("Pick a duration");
-        timerLabel.setFont(ModernUI.monoFont(Font.BOLD, 18f));
+        timerLabel.setFont(ModernUI.monoFont(Font.BOLD, 15f));
         timerLabel.setForeground(theme.getForeground());
         controls.add(modeLabel);
         controls.add(modeBox);
@@ -104,7 +105,7 @@ class TypingTestDialog extends JDialog {
         controls.add(durationButton("5m", 300));
         controls.add(Box.createHorizontalStrut(12));
         controls.add(timerLabel);
-        header.add(controls, BorderLayout.EAST);
+        header.add(controls, BorderLayout.CENTER);
         root.add(header, BorderLayout.NORTH);
 
         sampleArea = area(sampleText, true);
