@@ -1,5 +1,13 @@
 # Release Notes
 
+## 6.4 Type Better
+
+- Added real-time per-character highlighting in the typing test.
+- Added personal best WPM tracking across sessions.
+- Added Custom Text mode for practicing your own text.
+- Added Code mode featuring 6 diverse programming snippets.
+- Added full-screen support for the typing test dialog.
+
 ## 6.2 Diary Update
 
 - Added encrypted-entry search with case-insensitive filtering across decrypted diary contents.

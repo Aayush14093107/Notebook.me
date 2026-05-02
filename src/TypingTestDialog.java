@@ -1,5 +1,8 @@
 import java.awt.*;
 import javax.swing.*;
+import javax.swing.text.*;
+import java.nio.file.*;
+import java.time.LocalDate;
 
 class TypingTestDialog extends JDialog {
     private static final String[][] SAMPLE_TEXTS = {
@@ -22,15 +25,25 @@ class TypingTestDialog extends JDialog {
             "Order 4521 contains 3 items weighing 2.5 kg each for a total of 7.5 kg. The package dimensions are 40 x 30 x 20 cm. Shipping to zone 7 costs $15.75 with a 2 to 5 business day delivery window.",
             "At 9:15 AM the backup copied 42 files in 18 seconds, then verified 42 checksums with 0 errors. The final archive measured 73.4 MB.",
             "Recipe version 3 uses 250 g of flour, 125 g of butter, and 80 g of sugar. Bake at 180 C for 22 minutes before cooling for 10 minutes."
+        },
+        {},
+        {
+            "public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n    int count = 0;\n    while (count < 10) {\n        count++;\n    }\n}",
+            "function calculateTotal(items) {\n    return items.reduce((total, item) => {\n        return total + item.price * item.quantity;\n    }, 0);\n}",
+            "def quicksort(arr):\n    if len(arr) <= 1:\n        return arr\n    pivot = arr[len(arr) // 2]\n    left = [x for x in arr if x < pivot]\n    middle = [x for x in arr if x == pivot]\n    right = [x for x in arr if x > pivot]\n    return quicksort(left) + middle + quicksort(right)",
+            "class Application extends React.Component {\n    render() {\n        return (\n            <div className=\"app\">\n                <Header title=\"Welcome\" />\n                <MainContent />\n            </div>\n        );\n    }\n}",
+            "public interface Repository<T, ID> {\n    <S extends T> S save(S entity);\n    Optional<T> findById(ID id);\n    Iterable<T> findAll();\n    void deleteById(ID id);\n}",
+            "const fetchData = async () => {\n    try {\n        const response = await fetch('/api/data');\n        const data = await response.json();\n        console.log(data);\n    } catch (error) {\n        console.error('Error:', error);\n    }\n};"
         }
     };
 
     private final Theme theme;
-    private JTextArea sampleArea;
+    private JTextPane sampleArea;
     private JTextArea typingArea;
     private JLabel timerLabel;
     private JLabel resultLabel;
     private JLabel statsLabel;
+    private JLabel personalBestLabel;
     private JButton restartButton;
     private int durationSecs;
     private int timeLeft;
@@ -39,6 +52,8 @@ class TypingTestDialog extends JDialog {
     private boolean testFinished = false;
     private int currentMode = 0;
     private String sampleText;
+    private String customTextStr = "";
+    private int currentBestWpm = 0;
 
     public TypingTestDialog(JFrame parent, Theme theme) {
         super(parent, "Typing Speed Test", true);
@@ -81,12 +96,17 @@ class TypingTestDialog extends JDialog {
         JLabel modeLabel = new JLabel("Mode");
         modeLabel.setForeground(theme.getForeground());
         modeLabel.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
-        JComboBox<String> modeBox = new JComboBox<>(new String[]{"Normal", "No Punctuation", "With Numbers"});
+        JComboBox<String> modeBox = new JComboBox<>(new String[]{"Normal", "No Punctuation", "With Numbers", "Custom", "Code"});
         ModernUI.styleComboBox(modeBox, theme);
         modeBox.addActionListener(e -> {
-            currentMode = modeBox.getSelectedIndex();
-            sampleText = pickSample();
-            resetTestForModeChange();
+            int selected = modeBox.getSelectedIndex();
+            if (selected == 3) {
+                promptCustomText(modeBox);
+            } else {
+                currentMode = selected;
+                sampleText = pickSample();
+                resetTestForModeChange();
+            }
         });
         timerLabel = new JLabel("Pick a duration");
         timerLabel.setFont(ModernUI.monoFont(Font.BOLD, 15f));
@@ -104,17 +124,33 @@ class TypingTestDialog extends JDialog {
         controls.add(durationButton("60s", 60));
         controls.add(durationButton("5m", 300));
         controls.add(Box.createHorizontalStrut(12));
+        
+        JButton fullscreenBtn = new JButton("Fullscreen");
+        ModernUI.styleButton(fullscreenBtn, theme, "secondary");
+        fullscreenBtn.addActionListener(ev -> {
+            Rectangle maxBounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+            if (getBounds().equals(maxBounds)) {
+                setSize(780, 620);
+                setLocationRelativeTo(getParent());
+                fullscreenBtn.setText("Fullscreen");
+            } else {
+                setBounds(maxBounds);
+                fullscreenBtn.setText("Restore");
+            }
+        });
+        controls.add(fullscreenBtn);
+        controls.add(Box.createHorizontalStrut(12));
         controls.add(timerLabel);
         header.add(controls, BorderLayout.CENTER);
         root.add(header, BorderLayout.NORTH);
 
-        sampleArea = area(sampleText, true);
+        sampleArea = textPaneArea(sampleText, true);
         typingArea = area("", false);
         typingArea.setEnabled(false);
         typingArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); updateHighlighting(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); updateHighlighting(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { enableRestartIfTyping(); updateHighlighting(); }
         });
 
         SurfacePanel sampleShell = surfaceCard("Text to type", sampleArea);
@@ -127,7 +163,7 @@ class TypingTestDialog extends JDialog {
         root.add(center, BorderLayout.CENTER);
 
         SurfacePanel footer = new SurfacePanel(
-            new GridLayout(2, 1, 0, 4),
+            new GridLayout(3, 1, 0, 4),
             ModernUI.panelColor(theme),
             ModernUI.hairline(theme),
             ModernUI.RADIUS);
@@ -138,9 +174,15 @@ class TypingTestDialog extends JDialog {
         statsLabel = new JLabel(" ", JLabel.CENTER);
         statsLabel.setFont(ModernUI.monoFont(Font.PLAIN, 12f));
         statsLabel.setForeground(theme.getForeground());
+        personalBestLabel = new JLabel("Personal best: —", JLabel.CENTER);
+        personalBestLabel.setFont(ModernUI.monoFont(Font.PLAIN, 12f));
+        personalBestLabel.setForeground(ModernUI.mix(theme.getForeground(), theme.getAccent(), 0.18f));
         footer.add(resultLabel);
         footer.add(statsLabel);
+        footer.add(personalBestLabel);
         root.add(footer, BorderLayout.SOUTH);
+
+        loadPersonalBest();
     }
 
     private JTextArea area(String text, boolean locked) {
@@ -156,7 +198,19 @@ class TypingTestDialog extends JDialog {
         return area;
     }
 
-    private SurfacePanel surfaceCard(String title, JTextArea area) {
+    private JTextPane textPaneArea(String text, boolean locked) {
+        JTextPane pane = new JTextPane();
+        pane.setText(text);
+        pane.setEditable(!locked);
+        pane.setFont(locked ? new Font("Georgia", Font.ITALIC, 14) : ModernUI.monoFont(Font.PLAIN, 14f));
+        pane.setBackground(ModernUI.editorColor(theme));
+        pane.setForeground(theme.getForeground());
+        pane.setCaretColor(theme.getAccent());
+        pane.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
+        return pane;
+    }
+
+    private SurfacePanel surfaceCard(String title, JComponent area) {
         SurfacePanel shell = new SurfacePanel(
             new BorderLayout(0, 10),
             ModernUI.panelColor(theme),
@@ -181,6 +235,9 @@ class TypingTestDialog extends JDialog {
     }
 
     private String pickSample() {
+        if (currentMode == 3) {
+            return customTextStr;
+        }
         String[] pool = SAMPLE_TEXTS[currentMode];
         return pool[(int) (Math.random() * pool.length)];
     }
@@ -228,7 +285,10 @@ class TypingTestDialog extends JDialog {
         durationSecs = 0;
         timeLeft = 0;
 
-        if (sampleArea != null) sampleArea.setText(sampleText);
+        if (sampleArea != null) {
+            sampleArea.setText(sampleText);
+            updateHighlighting();
+        }
         if (typingArea != null) {
             typingArea.setText("");
             typingArea.setEnabled(false);
@@ -286,13 +346,165 @@ class TypingTestDialog extends JDialog {
         int cpm = (int) (totalChars / minutes);
         double accuracy = typedWords.length > 0 ? (correctWords * 100.0 / typedWords.length) : 0;
 
-        resultLabel.setText(String.format("WPM %d | Accuracy %.1f%% | Correct %d/%d", wpm, accuracy, correctWords, typedWords.length));
-        statsLabel.setText(String.format("CPM %d | Errors %d | Longest streak %d | Mode %s", cpm, errorWords, longestStreak,
-            currentMode == 0 ? "Normal" : currentMode == 1 ? "No Punctuation" : "Numbers"));
+        boolean newBest = savePersonalBest(wpm);
+
+        String resultStr = String.format("WPM %d | Accuracy %.1f%% | Correct %d/%d", wpm, accuracy, correctWords, typedWords.length);
+        if (newBest) {
+            resultStr = "🏆 New personal best! " + resultStr;
+        }
+        resultLabel.setText(resultStr);
+        String modeName = currentMode == 0 ? "Normal" : currentMode == 1 ? "No Punctuation" : currentMode == 2 ? "Numbers" : currentMode == 3 ? "Custom" : "Code";
+        statsLabel.setText(String.format("CPM %d | Errors %d | Longest streak %d | Mode %s", cpm, errorWords, longestStreak, modeName));
         timerLabel.setText("Done");
     }
 
     private String formatTime(int seconds) {
         return String.format("%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    private void promptCustomText(JComboBox<String> modeBox) {
+        JDialog dialog = new JDialog(this, "Custom Text", true);
+        dialog.setSize(500, 400);
+        dialog.setLocationRelativeTo(this);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            public void windowClosing(java.awt.event.WindowEvent windowEvent) {
+                if (currentMode != 3) modeBox.setSelectedIndex(currentMode);
+            }
+        });
+        
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.setBackground(theme.getBackground());
+        
+        JTextArea customArea = new JTextArea(customTextStr);
+        customArea.setLineWrap(true);
+        customArea.setWrapStyleWord(true);
+        customArea.setFont(ModernUI.monoFont(Font.PLAIN, 14f));
+        customArea.setBackground(ModernUI.editorColor(theme));
+        customArea.setForeground(theme.getForeground());
+        customArea.setCaretColor(theme.getAccent());
+        customArea.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        
+        JScrollPane scroll = new JScrollPane(customArea);
+        ModernUI.styleScrollPane(scroll, theme, ModernUI.editorColor(theme));
+        
+        JLabel errorLabel = new JLabel(" ");
+        errorLabel.setForeground(new Color(0xF44336));
+        
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        btnPanel.setOpaque(false);
+        JButton useBtn = new JButton("Use This Text");
+        JButton cancelBtn = new JButton("Cancel");
+        ModernUI.styleButton(useBtn, theme, "primary");
+        ModernUI.styleButton(cancelBtn, theme, "secondary");
+        
+        useBtn.addActionListener(ev -> {
+            String txt = customArea.getText().trim();
+            if (txt.length() < 20) {
+                errorLabel.setText("Text must be at least 20 characters.");
+            } else {
+                customTextStr = txt;
+                currentMode = 3;
+                sampleText = customTextStr;
+                dialog.dispose();
+                resetTestForModeChange();
+            }
+        });
+        
+        cancelBtn.addActionListener(ev -> {
+            dialog.dispose();
+            if (currentMode != 3) modeBox.setSelectedIndex(currentMode);
+        });
+        
+        btnPanel.add(errorLabel);
+        btnPanel.add(useBtn);
+        btnPanel.add(cancelBtn);
+        
+        panel.add(scroll, BorderLayout.CENTER);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+        
+        dialog.setContentPane(panel);
+        dialog.setVisible(true);
+    }
+
+    private void updateHighlighting() {
+        if (sampleArea == null || sampleText == null) return;
+        String typed = typingArea.getText();
+        String target = sampleText;
+        StyledDocument doc = sampleArea.getStyledDocument();
+        
+        SimpleAttributeSet correct = new SimpleAttributeSet();
+        StyleConstants.setForeground(correct, new Color(0x4CAF50));
+        StyleConstants.setFontFamily(correct, sampleArea.getFont().getFamily());
+        StyleConstants.setFontSize(correct, sampleArea.getFont().getSize());
+        
+        SimpleAttributeSet wrong = new SimpleAttributeSet();
+        StyleConstants.setForeground(wrong, new Color(0xF44336));
+        StyleConstants.setFontFamily(wrong, sampleArea.getFont().getFamily());
+        StyleConstants.setFontSize(wrong, sampleArea.getFont().getSize());
+        
+        SimpleAttributeSet untyped = new SimpleAttributeSet();
+        StyleConstants.setForeground(untyped, theme.getForeground());
+        StyleConstants.setFontFamily(untyped, sampleArea.getFont().getFamily());
+        StyleConstants.setFontSize(untyped, sampleArea.getFont().getSize());
+        
+        for (int i = 0; i < target.length(); i++) {
+            if (i < typed.length()) {
+                if (typed.charAt(i) == target.charAt(i)) {
+                    doc.setCharacterAttributes(i, 1, correct, true);
+                } else {
+                    doc.setCharacterAttributes(i, 1, wrong, true);
+                }
+            } else {
+                doc.setCharacterAttributes(i, 1, untyped, true);
+            }
+        }
+    }
+
+    private void loadPersonalBest() {
+        try {
+            Path pbPath = Paths.get("typing_best.json");
+            if (Files.exists(pbPath)) {
+                String content = new String(Files.readAllBytes(pbPath));
+                int wpmIndex = content.indexOf("\"best_wpm\":");
+                if (wpmIndex != -1) {
+                    int start = wpmIndex + 11;
+                    int end = content.indexOf(",", start);
+                    if (end == -1) end = content.indexOf("}", start);
+                    String wpmStr = content.substring(start, end).trim();
+                    currentBestWpm = Integer.parseInt(wpmStr);
+                }
+                int dateIndex = content.indexOf("\"date\":");
+                String dateStr = "";
+                if (dateIndex != -1) {
+                    int start = content.indexOf("\"", dateIndex + 7) + 1;
+                    int end = content.indexOf("\"", start);
+                    dateStr = content.substring(start, end);
+                }
+                personalBestLabel.setText(String.format("Personal best: %d WPM — %s", currentBestWpm, dateStr));
+            } else {
+                personalBestLabel.setText("Personal best: —");
+            }
+        } catch (Exception e) {
+            personalBestLabel.setText("Personal best: —");
+        }
+    }
+
+    private boolean savePersonalBest(int newWpm) {
+        if (newWpm > currentBestWpm) {
+            currentBestWpm = newWpm;
+            String today = LocalDate.now().toString();
+            String json = String.format("{\"best_wpm\": %d, \"date\": \"%s\"}", newWpm, today);
+            try {
+                Files.write(Paths.get("typing_best.json"), json.getBytes());
+                personalBestLabel.setText(String.format("Personal best: %d WPM — %s", newWpm, today));
+                return true;
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return false;
     }
 }
