@@ -1,5 +1,5 @@
 /**
- * notebook.me v6.1.2 - Feature-rich Java Notepad
+ * notebook.me v6.2 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
@@ -19,7 +19,7 @@ import javax.swing.undo.*;
 
 public class NotebookMe extends JFrame {
     private static final String APP_NAME = "notebook.me";
-    private static final String VERSION  = "6.1.2";
+    private static final String VERSION  = "6.2";
     private static final int SIDEBAR_WIDTH = 280;
     private static int instanceCount = 0;
     private Theme currentTheme;
