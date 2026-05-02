@@ -7,6 +7,9 @@
 - Added **ThreeFold**: A polished version of the classic Tic-Tac-Toe against the Notebook AI.
 - Added **Verble**: A daily Wordle-style word guessing game with 150+ words.
 - Added **Vector Viper**: A classic retro Snake game with smooth arrow-key controls.
+- Added **Wreck!**: A high-energy brick breaker with ricochet chains and angle-based physics.
+- Added **Memory Grid**: A pattern recognition game—watch the flash, then redraw the sequence.
+- Added **Don't burst**: A minimalist Minesweeper implementation with classic mechanics.
 - Added **Global Search** (Ctrl+Shift+F) to quickly search across all notes in your notebook.
 - Added **Extended word & reading stats** in the status bar (Reading time, Paragraph count, Flesch Readability).
 - Removed the experimental Pomodoro timer and Tag system to streamline the interface.

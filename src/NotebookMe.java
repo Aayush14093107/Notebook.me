@@ -1895,13 +1895,17 @@ public class NotebookMe extends JFrame {
         mainPanel.add(Box.createVerticalStrut(10));
 
         // ── Game tiles ──
-        JPanel tilesRow = ModernUI.transparentPanel(new GridLayout(1, 3, 10, 0));
-        tilesRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
-        tilesRow.setAlignmentX(Component.CENTER_ALIGNMENT);
-        tilesRow.add(makeGameTile("ThreeFold", "Tic-Tac-Toe\nvs AI", accent, panel, fg, aboutDlg, "ttt"));
-        tilesRow.add(makeGameTile("Verble", "Guess the\n5-letter word", accent, panel, fg, aboutDlg, "verble"));
-        tilesRow.add(makeGameTile("Vector Viper", "Classic\nSnake game", accent, panel, fg, aboutDlg, "snake"));
-        mainPanel.add(tilesRow);
+        JPanel tilesContainer = ModernUI.transparentPanel(new GridLayout(0, 3, 10, 10));
+        tilesContainer.setAlignmentX(Component.CENTER_ALIGNMENT);
+        
+        tilesContainer.add(makeGameTile("ThreeFold", "Tic-Tac-Toe\nvs AI", accent, panel, fg, aboutDlg, "ttt"));
+        tilesContainer.add(makeGameTile("Verble", "Guess the\n5-letter word", accent, panel, fg, aboutDlg, "verble"));
+        tilesContainer.add(makeGameTile("Vector Viper", "Classic\nSnake game", accent, panel, fg, aboutDlg, "snake"));
+        tilesContainer.add(makeGameTile("Wreck!", "Brick breaker\nwith chains", accent, panel, fg, aboutDlg, "wreck"));
+        tilesContainer.add(makeGameTile("Memory Grid", "Recall the\nflashed pattern", accent, panel, fg, aboutDlg, "memory"));
+        tilesContainer.add(makeGameTile("Don't burst", "Minimal\nMinesweeper", accent, panel, fg, aboutDlg, "mines"));
+        
+        mainPanel.add(tilesContainer);
         mainPanel.add(Box.createVerticalStrut(18));
 
         aboutDlg.setContentPane(mainPanel);
@@ -1933,7 +1937,15 @@ public class NotebookMe extends JFrame {
     }
 
     private void openGameWindow(String gameKey, JDialog parent) {
-        JDialog gameDlg = new JDialog(parent, gameKey.equals("ttt") ? "ThreeFold" : gameKey.equals("verble") ? "Verble" : "Vector Viper", true);
+        String title = "Game";
+        if (gameKey.equals("ttt")) title = "ThreeFold";
+        else if (gameKey.equals("verble")) title = "Verble";
+        else if (gameKey.equals("snake")) title = "Vector Viper";
+        else if (gameKey.equals("wreck")) title = "Wreck!";
+        else if (gameKey.equals("memory")) title = "Memory Grid";
+        else if (gameKey.equals("mines")) title = "Don't burst";
+        
+        JDialog gameDlg = new JDialog(parent, title, true);
         gameDlg.setLocationRelativeTo(parent);
 
         JPanel content;
@@ -1943,6 +1955,15 @@ public class NotebookMe extends JFrame {
         } else if (gameKey.equals("verble")) {
             gameDlg.setSize(440, 580);
             content = buildVerblePanel(gameDlg);
+        } else if (gameKey.equals("wreck")) {
+            gameDlg.setSize(480, 600);
+            content = buildWreckPanel(gameDlg);
+        } else if (gameKey.equals("memory")) {
+            gameDlg.setSize(420, 550);
+            content = buildMemoryPanel(gameDlg);
+        } else if (gameKey.equals("mines")) {
+            gameDlg.setSize(400, 520);
+            content = buildMinesPanel(gameDlg);
         } else {
             gameDlg.setSize(420, 480);
             content = buildSnakePanel(gameDlg);
@@ -1950,6 +1971,7 @@ public class NotebookMe extends JFrame {
         content.setBackground(currentTheme.getBackground());
         gameDlg.setContentPane(content);
         gameDlg.setVisible(true);
+        gameDlg.requestFocus();
     }
 
     private JPanel buildThreeFoldPanel(JDialog dlg) {
@@ -2150,6 +2172,327 @@ public class NotebookMe extends JFrame {
         root.add(topBar, BorderLayout.NORTH);
         root.add(canvasWrap, BorderLayout.CENTER);
         root.add(bottom, BorderLayout.SOUTH);
+        return root;
+    }
+
+    // ── Wreck! (Brick Breaker) ──
+    private JPanel buildWreckPanel(JDialog dlg) {
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+        Color panel = ModernUI.panelColor(currentTheme);
+
+        JPanel root = new JPanel(new BorderLayout(0, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        root.setOpaque(false);
+
+        JLabel scoreLabel = new JLabel("Score: 0  Multiplier: x1", SwingConstants.CENTER);
+        scoreLabel.setFont(ModernUI.monoFont(Font.BOLD, 12f));
+        scoreLabel.setForeground(accent);
+
+        final double[] bx = {240}, by = {450}, bvx = {2}, bvy = {-3};
+        final double[] px = {190}, py = {520}, pw = {100}, ph = {12};
+        final int ROWS = 5, COLS = 8, BW = 52, BH = 20;
+        final boolean[][] bricks = new boolean[ROWS][COLS];
+        for(int r=0;r<ROWS;r++) java.util.Arrays.fill(bricks[r], true);
+        
+        final long[] score = {0};
+        final int[] chain = {0};
+        final boolean[] running = {false};
+        final javax.swing.Timer[] timer = {null};
+
+        JPanel canvas = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                
+                // Field bg
+                g2.setColor(panel);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+
+                // Update py if needed
+                py[0] = getHeight() - 30;
+
+                // Bricks
+                for(int r=0;r<ROWS;r++) for(int c=0;c<COLS;c++) {
+                    if(!bricks[r][c]) continue;
+                    g2.setColor(ModernUI.mix(panel, accent, 1.0f - (r/(float)ROWS)));
+                    g2.fillRoundRect(c*(BW+4)+10, r*(BH+4)+40, BW, BH, 4, 4);
+                }
+                
+                // Paddle
+                g2.setColor(fg);
+                g2.fillRoundRect((int)px[0], (int)py[0], (int)pw[0], (int)ph[0], 6, 6);
+                
+                // Ball
+                g2.setColor(accent);
+                if (chain[0] > 3) g2.setColor(new Color(0xE5, 0x53, 0x53)); // Energy shot
+                g2.fillOval((int)bx[0]-6, (int)by[0]-6, 12, 12);
+                
+                g2.dispose();
+            }
+            @Override public Dimension getPreferredSize() { return new Dimension(450, 480); }
+        };
+        canvas.setOpaque(false);
+        canvas.setFocusable(true);
+
+        canvas.addMouseMotionListener(new MouseAdapter() {
+            @Override public void mouseMoved(MouseEvent e) {
+                px[0] = Math.max(0, Math.min(canvas.getWidth() - pw[0], e.getX() - pw[0]/2));
+                canvas.repaint();
+            }
+        });
+
+        timer[0] = new javax.swing.Timer(16, e -> {
+            if(!running[0]) return;
+            bx[0] += bvx[0]; by[0] += bvy[0];
+            
+            // Wall bounce
+            if(bx[0] < 6 || bx[0] > canvas.getWidth()-6) bvx[0] *= -1;
+            if(by[0] < 6) bvy[0] *= -1;
+            
+            // Paddle bounce
+            if(by[0] > py[0]-6 && by[0] < py[0]+ph[0] && bx[0] > px[0] && bx[0] < px[0]+pw[0]) {
+                by[0] = py[0]-7;
+                bvy[0] *= -1;
+                // Angle based on hit position
+                double diff = bx[0] - (px[0] + pw[0]/2);
+                bvx[0] = diff / 10.0;
+                chain[0] = 0; // reset ricochet chain
+                scoreLabel.setText("Score: " + score[0] + "  Multiplier: x1");
+            }
+            
+            // Bricks
+            for(int r=0;r<ROWS;r++) for(int c=0;c<COLS;c++) {
+                if(!bricks[r][c]) continue;
+                int rx = c*(BW+4)+10, ry = r*(BH+4)+40;
+                if(bx[0] > rx && bx[0] < rx+BW && by[0] > ry && by[0] < ry+BH) {
+                    bricks[r][c] = false;
+                    bvy[0] *= -1;
+                    chain[0]++;
+                    score[0] += 10 * chain[0];
+                    scoreLabel.setText("Score: " + score[0] + "  Multiplier: x" + chain[0]);
+                    break;
+                }
+            }
+            
+            if(by[0] > canvas.getHeight()) {
+                running[0] = false;
+                timer[0].stop();
+                JOptionPane.showMessageDialog(dlg, "Game Over! Score: " + score[0]);
+            }
+            canvas.repaint();
+        });
+
+        JButton start = new JButton("Start Game");
+        ModernUI.styleButton(start, currentTheme, "primary");
+        start.addActionListener(e -> {
+            for(int r=0;r<ROWS;r++) java.util.Arrays.fill(bricks[r], true);
+            bx[0]=240; by[0]=450; bvx[0]=2; bvy[0]=-3;
+            score[0]=0; chain[0]=0; running[0]=true;
+            timer[0].start();
+        });
+
+        root.add(scoreLabel, BorderLayout.NORTH);
+        root.add(canvas, BorderLayout.CENTER);
+        root.add(start, BorderLayout.SOUTH);
+        
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { timer[0].stop(); }
+        });
+        
+        return root;
+    }
+
+    // ── Memory Grid Game ──
+    private JPanel buildMemoryPanel(JDialog dlg) {
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+        Color panel = ModernUI.panelColor(currentTheme);
+
+        JPanel root = new JPanel(new BorderLayout(0, 12));
+        root.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        root.setOpaque(false);
+
+        final int GRID = 4;
+        final int[] level = {1};
+        final java.util.List<Integer> pattern = new java.util.ArrayList<>();
+        final java.util.List<Integer> userInput = new java.util.ArrayList<>();
+        final boolean[] canInput = {false};
+
+        JLabel status = new JLabel("Level 1: Watch carefully", SwingConstants.CENTER);
+        status.setFont(ModernUI.uiFont(Font.BOLD, 14f));
+        status.setForeground(fg);
+        root.add(status, BorderLayout.NORTH);
+
+        JPanel board = new JPanel(new GridLayout(GRID, GRID, 6, 6));
+        board.setOpaque(false);
+        JButton[] btns = new JButton[GRID * GRID];
+
+        java.util.function.Consumer<Void> nextLevel = (v) -> {
+            canInput[0] = false;
+            userInput.clear();
+            pattern.clear();
+            java.util.Random rnd = new java.util.Random();
+            while(pattern.size() < 2 + level[0]) {
+                int r = rnd.nextInt(GRID*GRID);
+                if(!pattern.contains(r)) pattern.add(r);
+            }
+            status.setText("Level " + level[0] + ": Watch...");
+            
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1000);
+                    for(int idx : pattern) {
+                        btns[idx].setBackground(accent);
+                        Thread.sleep(600);
+                        btns[idx].setBackground(panel);
+                        Thread.sleep(200);
+                    }
+                    canInput[0] = true;
+                    SwingUtilities.invokeLater(() -> status.setText("Your turn! Repeat the pattern."));
+                } catch(InterruptedException ex) {}
+            }).start();
+        };
+
+        for (int i = 0; i < GRID * GRID; i++) {
+            final int idx = i;
+            btns[i] = new JButton();
+            btns[i].setFocusPainted(false);
+            btns[i].setBackground(panel);
+            btns[i].setBorder(BorderFactory.createLineBorder(ModernUI.withAlpha(fg, 30)));
+            btns[i].addActionListener(e -> {
+                if(!canInput[0]) return;
+                btns[idx].setBackground(accent);
+                new javax.swing.Timer(300, ev -> btns[idx].setBackground(panel)).start();
+                userInput.add(idx);
+                if(userInput.get(userInput.size()-1) != pattern.get(userInput.size()-1)) {
+                    canInput[0] = false;
+                    JOptionPane.showMessageDialog(dlg, "Wrong! Final Level: " + level[0]);
+                    level[0] = 1;
+                    return;
+                }
+                if(userInput.size() == pattern.size()) {
+                    level[0]++;
+                    nextLevel.accept(null);
+                }
+            });
+            board.add(btns[i]);
+        }
+
+        root.add(board, BorderLayout.CENTER);
+        JButton start = new JButton("Start Game");
+        ModernUI.styleButton(start, currentTheme, "primary");
+        start.addActionListener(e -> { level[0]=1; nextLevel.accept(null); });
+        root.add(start, BorderLayout.SOUTH);
+
+        return root;
+    }
+
+    // ── Minesweeper (Don't burst) ──
+    private JPanel buildMinesPanel(JDialog dlg) {
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+        Color panel = ModernUI.panelColor(currentTheme);
+
+        JPanel root = new JPanel(new BorderLayout(0, 12));
+        root.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        root.setOpaque(false);
+
+        JLabel title = new JLabel("Don't burst", SwingConstants.CENTER);
+        title.setFont(ModernUI.uiFont(Font.BOLD, 18f));
+        title.setForeground(fg);
+        root.add(title, BorderLayout.NORTH);
+
+        int ROWS = 10, COLS = 10, MINES = 12;
+        int[][] grid = new int[ROWS][COLS];
+        boolean[][] revealed = new boolean[ROWS][COLS];
+        boolean[][] flagged = new boolean[ROWS][COLS];
+        final boolean[] gameOver = {false};
+
+        JPanel board = new JPanel(new GridLayout(ROWS, COLS, 2, 2));
+        board.setOpaque(false);
+        JButton[][] btns = new JButton[ROWS][COLS];
+
+        Runnable init = () -> {
+            gameOver[0] = false;
+            for(int r=0;r<ROWS;r++) {
+                java.util.Arrays.fill(grid[r], 0);
+                java.util.Arrays.fill(revealed[r], false);
+                java.util.Arrays.fill(flagged[r], false);
+            }
+            java.util.Random rnd = new java.util.Random();
+            int m = 0;
+            while(m < MINES) {
+                int rr = rnd.nextInt(ROWS), cc = rnd.nextInt(COLS);
+                if(grid[rr][cc] != -1) { grid[rr][cc] = -1; m++; }
+            }
+            for(int r=0;r<ROWS;r++) for(int c=0;c<COLS;c++) {
+                if(grid[r][c] == -1) continue;
+                int count = 0;
+                for(int dr=-1;dr<=1;dr++) for(int dc=-1;dc<=1;dc++) {
+                    int nr=r+dr, nc=c+dc;
+                    if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]==-1) count++;
+                }
+                grid[r][c] = count;
+            }
+            for(int r=0;r<ROWS;r++) for(int c=0;c<COLS;c++) {
+                btns[r][c].setText("");
+                btns[r][c].setBackground(panel);
+                btns[r][c].setForeground(fg);
+                btns[r][c].setEnabled(true);
+            }
+        };
+
+        java.util.function.BiConsumer<Integer, Integer> reveal = new java.util.function.BiConsumer<Integer, Integer>() {
+            @Override public void accept(Integer r, Integer c) {
+                if(r<0||r>=ROWS||c<0||c>=COLS||revealed[r][c]||flagged[r][c]) return;
+                revealed[r][c] = true;
+                btns[r][c].setBackground(ModernUI.mix(panel, currentTheme.getBackground(), 0.5f));
+                if(grid[r][c] == -1) {
+                    gameOver[0] = true;
+                    btns[r][c].setText("!");
+                    btns[r][c].setBackground(new Color(0xE5, 0x53, 0x53));
+                    JOptionPane.showMessageDialog(dlg, "BOOM! Game Over.");
+                    return;
+                }
+                if(grid[r][c] > 0) {
+                    btns[r][c].setText(String.valueOf(grid[r][c]));
+                    btns[r][c].setForeground(ModernUI.mix(fg, accent, grid[r][c]/8.0f));
+                } else {
+                    for(int dr=-1;dr<=1;dr++) for(int dc=-1;dc<=1;dc++) accept(r+dr, c+dc);
+                }
+            }
+        };
+
+        for (int r = 0; r < ROWS; r++) {
+            for (int c = 0; c < COLS; c++) {
+                final int rr = r, cc = c;
+                btns[r][c] = new JButton();
+                btns[r][c].setFocusPainted(false);
+                btns[r][c].setPreferredSize(new Dimension(30, 30));
+                btns[r][c].addMouseListener(new MouseAdapter() {
+                    @Override public void mouseClicked(MouseEvent e) {
+                        if(gameOver[0]) return;
+                        if(SwingUtilities.isRightMouseButton(e)) {
+                            flagged[rr][cc] = !flagged[rr][cc];
+                            btns[rr][cc].setText(flagged[rr][cc] ? "?" : "");
+                            btns[rr][cc].setForeground(flagged[rr][cc] ? accent : fg);
+                        } else {
+                            reveal.accept(rr, cc);
+                        }
+                    }
+                });
+                board.add(btns[r][c]);
+            }
+        }
+
+        init.run();
+        root.add(board, BorderLayout.CENTER);
+        JButton reset = new JButton("Reset");
+        ModernUI.styleButton(reset, currentTheme, "secondary");
+        reset.addActionListener(e -> init.run());
+        root.add(reset, BorderLayout.SOUTH);
         return root;
     }
 
