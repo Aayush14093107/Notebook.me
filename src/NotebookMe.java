@@ -1,5 +1,5 @@
 /**
- * notebook.me v6.2 - Feature-rich Java Notepad
+ * notebook.me v6.5 - Feature-rich Java Notepad
  */
 import java.awt.*;
 import java.awt.event.*;
@@ -19,7 +19,7 @@ import javax.swing.undo.*;
 
 public class NotebookMe extends JFrame {
     private static final String APP_NAME = "notebook.me";
-    private static final String VERSION  = "6.2";
+    private static final String VERSION  = "6.5";
     private static final int SIDEBAR_WIDTH = 280;
     private static int instanceCount = 0;
     private Theme currentTheme;
@@ -53,6 +53,7 @@ public class NotebookMe extends JFrame {
     private JEditorPane mdPreviewPane;
     private boolean mdPreviewVisible = false;
     private GradientPanel rootPanel;
+    private JLabel readingTimeLabel, paragraphCountLabel, readabilityLabel;
 
     static class TabData {
         JTextArea textArea;
@@ -328,11 +329,13 @@ public class NotebookMe extends JFrame {
         JLabel eyebrow = new JLabel("WORKSPACE");
         eyebrow.setFont(ModernUI.uiFont(Font.BOLD, 11f));
         eyebrow.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 135));
-        JLabel sideHeader = new JLabel("Library");
+            JLabel sideHeader = new JLabel("Library");
         sideHeader.setFont(ModernUI.uiFont(Font.BOLD, 17f));
         sideHeader.setForeground(currentTheme.getForeground());
         titleBlock.add(eyebrow, BorderLayout.NORTH);
         titleBlock.add(sideHeader, BorderLayout.CENTER);
+
+        header.add(titleBlock, BorderLayout.CENTER);
 
         JPanel sideButtons = new JPanel(new GridLayout(3, 1, 0, 6));
         sideButtons.setOpaque(false);
@@ -507,11 +510,14 @@ public class NotebookMe extends JFrame {
         });
         td.linePanel = new LineNumberPanel(td.textArea, currentTheme);
         td.textArea.addCaretListener(e -> td.linePanel.repaint());
+        
         td.editorPanel = ModernUI.transparentPanel(new BorderLayout());
         td.scrollPane = new JScrollPane(td.textArea);
         ModernUI.styleScrollPane(td.scrollPane, currentTheme, ModernUI.editorColor(currentTheme));
         td.scrollPane.getViewport().addChangeListener(e -> td.linePanel.repaint());
+
         td.editorPanel.add(td.scrollPane, BorderLayout.CENTER);
+        
         applyLineNumberVisibility(td);
         tabs.add(td); tabbedPane.addTab(title, td.editorPanel);
         int idx = tabbedPane.getTabCount() - 1;
@@ -691,9 +697,14 @@ public class NotebookMe extends JFrame {
         JMenuItem p=si("Pin/Unpin Note"); JMenuItem v=si("Version History..."); JMenuItem sd=si("Self-Destruct Timer...");
         JMenuItem tt=si("Typing Speed Test...");
         JMenuItem diary=si("Diary Mode...");
+        JMenuItem gs=si("Global Search");
+        gs.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
+        
         p.addActionListener(e->togglePin()); v.addActionListener(e->showVersionHistory()); sd.addActionListener(e->setSelfDestruct());
         tt.addActionListener(e->openTypingTest()); diary.addActionListener(e->openDiary());
-        m.add(as);m.addSeparator();m.add(p);m.add(v);m.addSeparator();m.add(tt);m.add(diary);m.addSeparator();m.add(sd); return m;
+        gs.addActionListener(e->openGlobalSearch());
+        
+        m.add(as);m.addSeparator();m.add(gs);m.addSeparator();m.add(p);m.add(v);m.addSeparator();m.add(tt);m.add(diary);m.addSeparator();m.add(sd); return m;
     }
 
     private JMenu buildThemeMenu() {
@@ -757,6 +768,9 @@ public class NotebookMe extends JFrame {
     private void rebuildStatusBar() {
         statusLeft = new JLabel("Ln 1, Col 1");
         statusMid = new JLabel("0 words");
+        readingTimeLabel = new JLabel("— min read");
+        paragraphCountLabel = new JLabel("— paragraphs");
+        readabilityLabel = new JLabel("— readability");
         statusRight = new JLabel("v" + VERSION);
         lastEditedLabel = new JLabel("Not edited yet");
 
@@ -773,14 +787,22 @@ public class NotebookMe extends JFrame {
         JPanel centerPanel = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
         JPanel rightPanel = ModernUI.transparentPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 
-        JLabel[] labels = { statusLeft, statusMid, lastEditedLabel, statusRight };
+        JLabel[] labels = { statusLeft, statusMid, readingTimeLabel, paragraphCountLabel, readabilityLabel, lastEditedLabel, statusRight };
         for (JLabel label : labels) {
             label.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
             label.setForeground(ModernUI.withAlpha(currentTheme.getForeground(), 175));
         }
 
         leftPanel.add(statusLeft);
+        
         centerPanel.add(statusMid);
+        centerPanel.add(new JLabel(" | "));
+        centerPanel.add(readingTimeLabel);
+        centerPanel.add(new JLabel(" | "));
+        centerPanel.add(paragraphCountLabel);
+        centerPanel.add(new JLabel(" | "));
+        centerPanel.add(readabilityLabel);
+
         rightPanel.add(lastEditedLabel);
         rightPanel.add(statusRight);
 
@@ -807,6 +829,9 @@ public class NotebookMe extends JFrame {
         getRootPane().getActionMap().put("toggleFS",new AbstractAction(){public void actionPerformed(ActionEvent e){toggleFullScreen();}});
         getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE,0),"exitFS");
         getRootPane().getActionMap().put("exitFS",new AbstractAction(){public void actionPerformed(ActionEvent e){if(isFullScreen)toggleFullScreen();}});
+        // Ctrl+Shift+F: Global Search
+        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK),"globalSearch");
+        getRootPane().getActionMap().put("globalSearch",new AbstractAction(){public void actionPerformed(ActionEvent e){openGlobalSearch();}});
     }
 
     private void openFile() {
@@ -1019,12 +1044,24 @@ public class NotebookMe extends JFrame {
     }
 
     private void loadFolderTree() {
-        rootNode.removeAllChildren(); File[] folders=notebookDir.listFiles(File::isDirectory);
-        if(folders!=null){for(File f:folders){DefaultMutableTreeNode fn=new DefaultMutableTreeNode(f.getName());
-            File[] notes=f.listFiles(fi->fi.isFile()&&fi.getName().endsWith(".txt"));
-            if(notes!=null)for(File n:notes)fn.add(new DefaultMutableTreeNode(n.getName()));rootNode.add(fn);}}
-        treeModel.reload(); for(int i=0;i<folderTree.getRowCount();i++)folderTree.expandRow(i);
+        rootNode.removeAllChildren();
+        File[] folders = notebookDir.listFiles(f -> f.isDirectory() && !f.getName().equals("diary"));
+        if (folders != null) {
+            for (File f : folders) {
+                DefaultMutableTreeNode fn = new DefaultMutableTreeNode(f.getName());
+                File[] notes = f.listFiles(fi -> fi.isFile() && fi.getName().endsWith(".txt"));
+                if (notes != null) {
+                    for (File n : notes) {
+                        fn.add(new DefaultMutableTreeNode(n.getName()));
+                    }
+                }
+                rootNode.add(fn);
+            }
+        }
+        treeModel.reload();
+        for (int i = 0; i < folderTree.getRowCount(); i++) folderTree.expandRow(i);
     }
+
 
     private void createFolder() {
         String name=JOptionPane.showInputDialog(this,"Folder name:"); if(name==null||name.isBlank())return;
@@ -1069,7 +1106,61 @@ public class NotebookMe extends JFrame {
         SwingUtilities.invokeLater(()->lastEditedLabel.setText("Last edited: "+new SimpleDateFormat(fmt).format(new java.util.Date())));
     }
 
-    private void updateStatus() { SwingUtilities.invokeLater(()->{JTextArea ta=getCurrentTextArea();String t=ta.getText();int ch=t.length(),w=t.isBlank()?0:t.trim().split("\\s+").length,l=ta.getLineCount();statusMid.setText(w+" words - "+ch+" chars - "+l+" lines");}); }
+    private void updateStatus() {
+        SwingUtilities.invokeLater(() -> {
+            JTextArea ta = getCurrentTextArea();
+            if (ta == null) return;
+            String t = ta.getText();
+            int ch = t.length();
+            String[] words = t.isBlank() ? new String[0] : t.trim().split("\\s+");
+            int w = words.length;
+            int l = ta.getLineCount();
+            statusMid.setText(w + " words");
+
+            // Reading Time (avg 200 wpm)
+            int readMins = (int) Math.ceil(w / 200.0);
+            readingTimeLabel.setText(readMins + " min read");
+
+            // Paragraph Count (split by double newline)
+            String[] paragraphs = t.split("\\n\\s*\\n");
+            int pCount = t.isBlank() ? 0 : paragraphs.length;
+            paragraphCountLabel.setText(pCount + " paragraphs");
+
+            // Readability
+            double score = calculateFleschScore(t, w);
+            String readability = "—";
+            if (w > 0) {
+                if (score > 90) readability = "Very Easy";
+                else if (score > 80) readability = "Easy";
+                else if (score > 70) readability = "Fairly Easy";
+                else if (score > 60) readability = "Standard";
+                else if (score > 50) readability = "Fairly Difficult";
+                else if (score > 30) readability = "Difficult";
+                else readability = "Very Confusing";
+            }
+            readabilityLabel.setText(readability);
+        });
+    }
+
+    private double calculateFleschScore(String text, int wordCount) {
+        if (wordCount < 1) return 0;
+        String[] sentences = text.split("[.!?]+");
+        int sentenceCount = Math.max(1, sentences.length);
+        int syllables = countSyllables(text);
+        return 206.835 - 1.015 * (wordCount / (double) sentenceCount) - 84.6 * (syllables / (double) wordCount);
+    }
+
+    private int countSyllables(String text) {
+        int count = 0;
+        text = text.toLowerCase().replaceAll("[^a-z ]", "");
+        String[] words = text.split("\\s+");
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            int wc = w.replaceAll("[aeiouy]{2,}", "a").replaceAll("e$", "").replaceAll("[^aeiouy]", "").length();
+            count += Math.max(1, wc);
+        }
+        return count;
+    }
 
     private void updateCaretStatus() { SwingUtilities.invokeLater(()->{try{JTextArea ta=getCurrentTextArea();int pos=ta.getCaretPosition(),line=ta.getLineOfOffset(pos)+1,col=pos-ta.getLineStartOffset(line-1)+1;statusLeft.setText("Ln "+line+", Col "+col);}catch(BadLocationException ignored){}}); }
 
@@ -1521,6 +1612,7 @@ public class NotebookMe extends JFrame {
             "  Ctrl+O       Open file\n" +
             "  Ctrl+S       Save\n" +
             "  Ctrl+F       Find and replace\n" +
+            "  Ctrl+Shift+F Global search\n" +
             "  Ctrl+M       Markdown preview\n" +
             "  F11          Fullscreen\n");
         getCurrentTextArea().setCaretPosition(0); TabData td=currentTab(); if(td!=null){td.modified=false;td.lastSaved=getCurrentTextArea().getText();}
@@ -1579,6 +1671,7 @@ public class NotebookMe extends JFrame {
             {"Ctrl+Z", "Undo"},
             {"Ctrl+Y", "Redo"},
             {"Ctrl+F", "Find and replace"},
+            {"Ctrl+Shift+F", "Global search"},
             {"Ctrl+D", "Highlight all"},
             {"Ctrl+M", "Markdown preview"},
             {"Ctrl++ / Ctrl+-", "Zoom"},
@@ -1667,96 +1760,602 @@ public class NotebookMe extends JFrame {
     }
 
     private void showAbout() {
-        JDialog aboutDlg = new JDialog(this, "About", true);
-        aboutDlg.setSize(560, 600);
-        aboutDlg.setLocationRelativeTo(this);
-        
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-        mainPanel.setBackground(currentTheme.getBackground());
-        
-        String hex = String.format("#%02x%02x%02x", currentTheme.getForeground().getRed(), currentTheme.getForeground().getGreen(), currentTheme.getForeground().getBlue());
-        String aboutText = "<html><body><h2 style='color:" + hex + "'>Notebook.Me</h2>" +
-                           "<p style='color:" + hex + ";width:350px;font-size:11px;'>" +
-                           "A smart and minimal note-taking app designed to help users write, organize, and manage their notes efficiently.<br><br>" +
-                           "Built on Java<br>Developed by Vervain Labs.<br>Current version " + VERSION + "<br><br>" +
-                           "<b>User trust statement:</b><br>Your privacy matters to us. Your notes remain secure and accessible only to you.<br><br>" +
-                           "Instances: " + instanceCount + "</p></body></html>";
-        JLabel textLabel = new JLabel(aboutText);
-        JLabel githubLabel = new JLabel("<html><a style='color:" + hex + ";text-decoration:none;' href='#'>github.com/VervainLabs</a></html>");
-        githubLabel.setFont(ModernUI.uiFont(Font.BOLD, 12f));
-        githubLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        githubLabel.setToolTipText("Open Vervain Labs on GitHub");
-        githubLabel.addMouseListener(new MouseAdapter() {
+        JDialog aboutDlg = new JDialog(this, "About notebook.me", true);
+        aboutDlg.setMinimumSize(new Dimension(600, 620));
+        aboutDlg.setSize(600, 620);
+        aboutDlg.setResizable(false);
+        aboutDlg.setLocationRelativeTo(null);
+
+        Color bg = currentTheme.getBackground();
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+        Color panel = ModernUI.panelColor(currentTheme);
+        Color muted = ModernUI.withAlpha(fg, 150);
+
+        JPanel mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setBackground(bg);
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(22, 28, 18, 28));
+
+        // ── Header ──
+        ImageIcon logo = loadScaledResourceIcon("vervain-logo.png", 64, 64);
+        if (logo != null) {
+            JLabel logoLbl = new JLabel(logo, SwingConstants.CENTER);
+            logoLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+            mainPanel.add(logoLbl);
+            mainPanel.add(Box.createVerticalStrut(8));
+        }
+
+        JLabel appName = new JLabel("notebook.me", SwingConstants.CENTER);
+        appName.setFont(ModernUI.uiFont(Font.BOLD, 24f));
+        appName.setForeground(fg);
+        appName.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(appName);
+
+        JLabel tagline = new JLabel("A smart and minimal note-taking app.", SwingConstants.CENTER);
+        tagline.setFont(ModernUI.uiFont(Font.PLAIN, 12f));
+        tagline.setForeground(muted);
+        tagline.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(tagline);
+        mainPanel.add(Box.createVerticalStrut(14));
+
+        // ── Divider ──
+        JSeparator sep1 = new JSeparator();
+        sep1.setForeground(ModernUI.hairline(currentTheme));
+        sep1.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+        mainPanel.add(sep1);
+        mainPanel.add(Box.createVerticalStrut(12));
+
+        // ── Info ──
+        JLabel builtOn = new JLabel("Built on Java  |  Developed by Vervain Labs", SwingConstants.CENTER);
+        builtOn.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        builtOn.setForeground(muted);
+        builtOn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(builtOn);
+        mainPanel.add(Box.createVerticalStrut(6));
+
+        // Version pill
+        JPanel versionPill = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(accent);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        versionPill.setOpaque(false);
+        versionPill.setLayout(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        JLabel versionLbl = new JLabel("v" + VERSION);
+        versionLbl.setFont(ModernUI.uiFont(Font.BOLD, 11f));
+        versionLbl.setForeground(ModernUI.contrastText(accent));
+        versionPill.add(versionLbl);
+        versionPill.setBorder(BorderFactory.createEmptyBorder(3, 12, 3, 12));
+        JPanel pillWrap = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+        pillWrap.add(versionPill);
+        JLabel instLbl = new JLabel("  Instances: " + instanceCount);
+        instLbl.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        instLbl.setForeground(muted);
+        pillWrap.add(instLbl);
+        pillWrap.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(pillWrap);
+        mainPanel.add(Box.createVerticalStrut(10));
+
+        // ── Privacy callout ──
+        JPanel privacyBox = new JPanel(new BorderLayout());
+        privacyBox.setBackground(ModernUI.mix(bg, panel, 0.5f));
+        privacyBox.setBorder(BorderFactory.createCompoundBorder(
+            new RoundedBorder(ModernUI.hairline(currentTheme), 8, 1),
+            BorderFactory.createEmptyBorder(8, 12, 8, 12)));
+        privacyBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
+        JTextArea privacyText = new JTextArea("Your privacy matters to us. Your notes remain secure and accessible only to you.");
+        privacyText.setLineWrap(true);
+        privacyText.setWrapStyleWord(true);
+        privacyText.setEditable(false);
+        privacyText.setOpaque(false);
+        privacyText.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        privacyText.setForeground(muted);
+        privacyText.setBorder(null);
+        privacyBox.add(privacyText, BorderLayout.CENTER);
+        privacyBox.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(privacyBox);
+        mainPanel.add(Box.createVerticalStrut(8));
+
+        // ── GitHub link ──
+        JLabel ghLink = new JLabel("<html><u>github.com/VervainLabs</u></html>", SwingConstants.CENTER);
+        ghLink.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        ghLink.setForeground(accent);
+        ghLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        ghLink.setAlignmentX(Component.CENTER_ALIGNMENT);
+        ghLink.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
-                openExternalLink("https://github.com/VervainLabs");
+                try { Desktop.getDesktop().browse(new java.net.URI("https://github.com/VervainLabs")); }
+                catch (Exception ex) { showError("Could not open link."); }
             }
         });
+        JPanel ghRow = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER));
+        ghRow.add(ghLink);
+        ghRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(ghRow);
+        mainPanel.add(Box.createVerticalStrut(14));
 
-        JPanel infoStack = new JPanel();
-        infoStack.setOpaque(false);
-        infoStack.setLayout(new BoxLayout(infoStack, BoxLayout.Y_AXIS));
-        infoStack.add(textLabel);
-        infoStack.add(Box.createVerticalStrut(4));
-        infoStack.add(githubLabel);
+        // ── Games heading divider ──
+        JSeparator sep2 = new JSeparator();
+        sep2.setForeground(ModernUI.hairline(currentTheme));
+        sep2.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+        mainPanel.add(sep2);
+        mainPanel.add(Box.createVerticalStrut(12));
 
-        JPanel aboutHeader = new JPanel(new BorderLayout(12, 0));
-        aboutHeader.setOpaque(false);
-        ImageIcon vervainLogo = loadScaledResourceIcon("vervain-logo.png", 112, 112);
-        if (vervainLogo != null) {
-            JLabel logoLabel = new JLabel(vervainLogo, SwingConstants.CENTER);
-            logoLabel.setPreferredSize(new Dimension(126, 116));
-            aboutHeader.add(logoLabel, BorderLayout.WEST);
+        JLabel gamesTitle = new JLabel("You vs The Notebook", SwingConstants.CENTER);
+        gamesTitle.setFont(ModernUI.uiFont(Font.BOLD, 13f));
+        gamesTitle.setForeground(fg);
+        gamesTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(gamesTitle);
+        mainPanel.add(Box.createVerticalStrut(10));
+
+        // ── Game tiles ──
+        JPanel tilesRow = ModernUI.transparentPanel(new GridLayout(1, 3, 10, 0));
+        tilesRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
+        tilesRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        tilesRow.add(makeGameTile("ThreeFold", "Tic-Tac-Toe\nvs AI", accent, panel, fg, aboutDlg, "ttt"));
+        tilesRow.add(makeGameTile("Verble", "Guess the\n5-letter word", accent, panel, fg, aboutDlg, "verble"));
+        tilesRow.add(makeGameTile("Vector Viper", "Classic\nSnake game", accent, panel, fg, aboutDlg, "snake"));
+        mainPanel.add(tilesRow);
+        mainPanel.add(Box.createVerticalStrut(18));
+
+        aboutDlg.setContentPane(mainPanel);
+        aboutDlg.setVisible(true);
+    }
+
+    private JPanel makeGameTile(String name, String desc, Color accent, Color panel, Color fg, JDialog parent, String gameKey) {
+        SurfacePanel tile = new SurfacePanel(new BorderLayout(0, 4),
+            panel, ModernUI.withAlpha(fg, 30), 10);
+        tile.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        tile.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        JLabel nameLbl = new JLabel(name, SwingConstants.CENTER);
+        nameLbl.setFont(ModernUI.uiFont(Font.BOLD, 13f));
+        nameLbl.setForeground(accent);
+
+        JLabel descLbl = new JLabel("<html><center>" + desc.replace("\n", "<br>") + "</center></html>", SwingConstants.CENTER);
+        descLbl.setFont(ModernUI.uiFont(Font.PLAIN, 10f));
+        descLbl.setForeground(ModernUI.withAlpha(fg, 150));
+
+        tile.add(nameLbl, BorderLayout.CENTER);
+        tile.add(descLbl, BorderLayout.SOUTH);
+        tile.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) { openGameWindow(gameKey, parent); }
+            @Override public void mouseEntered(MouseEvent e) { tile.setBackground(ModernUI.mix(panel, accent, 0.1f)); }
+            @Override public void mouseExited(MouseEvent e) { tile.setBackground(panel); }
+        });
+        return tile;
+    }
+
+    private void openGameWindow(String gameKey, JDialog parent) {
+        JDialog gameDlg = new JDialog(parent, gameKey.equals("ttt") ? "ThreeFold" : gameKey.equals("verble") ? "Verble" : "Vector Viper", true);
+        gameDlg.setLocationRelativeTo(parent);
+
+        JPanel content;
+        if (gameKey.equals("ttt")) {
+            gameDlg.setSize(380, 420);
+            content = buildThreeFoldPanel(gameDlg);
+        } else if (gameKey.equals("verble")) {
+            gameDlg.setSize(440, 580);
+            content = buildVerblePanel(gameDlg);
+        } else {
+            gameDlg.setSize(420, 480);
+            content = buildSnakePanel(gameDlg);
         }
-        aboutHeader.add(infoStack, BorderLayout.CENTER);
-        mainPanel.add(aboutHeader, BorderLayout.NORTH);
-        
-        JPanel tttPanel = new JPanel(new BorderLayout(5, 5));
-        tttPanel.setOpaque(false);
-        JLabel title = new JLabel("You vs The Notebook", SwingConstants.CENTER);
-        title.setFont(ModernUI.uiFont(Font.BOLD, 14f));
-        title.setForeground(currentTheme.getForeground());
-        tttPanel.add(title, BorderLayout.NORTH);
-        
+        content.setBackground(currentTheme.getBackground());
+        gameDlg.setContentPane(content);
+        gameDlg.setVisible(true);
+    }
+
+    private JPanel buildThreeFoldPanel(JDialog dlg) {
+        Color panel = ModernUI.panelColor(currentTheme);
+        Color fg = currentTheme.getForeground();
+        JPanel root = new JPanel(new BorderLayout(8, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        root.setOpaque(false);
+
+        JLabel title = new JLabel("ThreeFold", SwingConstants.CENTER);
+        title.setFont(ModernUI.uiFont(Font.BOLD, 16f));
+        title.setForeground(fg);
+        root.add(title, BorderLayout.NORTH);
+
         JPanel grid = new JPanel(new GridLayout(3, 3, 4, 4));
         grid.setOpaque(false);
         JButton[] btns = new JButton[9];
-        for (int i=0; i<9; i++) {
+        for (int i = 0; i < 9; i++) {
             btns[i] = new JButton("");
-            btns[i].setFont(ModernUI.uiFont(Font.BOLD, 24f));
+            btns[i].setFont(ModernUI.uiFont(Font.BOLD, 28f));
             btns[i].setFocusPainted(false);
-            btns[i].setBackground(ModernUI.panelColor(currentTheme));
-            btns[i].setForeground(currentTheme.getForeground());
+            btns[i].setBackground(panel);
+            btns[i].setForeground(fg);
             final int idx = i;
             btns[i].addActionListener(e -> {
                 if (!btns[idx].getText().isEmpty()) return;
                 btns[idx].setText("X");
-                if (checkWin(btns, "X")) { JOptionPane.showMessageDialog(aboutDlg, "You win!"); resetTTT(btns); return; }
-                if (isFull(btns)) { JOptionPane.showMessageDialog(aboutDlg, "Draw!"); resetTTT(btns); return; }
-                
-                for(JButton b : btns) b.setEnabled(false);
-                
-                javax.swing.Timer timer = new javax.swing.Timer(500, ev -> {
+                if (checkWin(btns, "X")) { JOptionPane.showMessageDialog(dlg, "You win!"); resetTTT(btns); return; }
+                if (isFull(btns)) { JOptionPane.showMessageDialog(dlg, "Draw!"); resetTTT(btns); return; }
+                for (JButton b : btns) b.setEnabled(false);
+                javax.swing.Timer t2 = new javax.swing.Timer(500, ev -> {
                     makeAIMove(btns);
-                    for(JButton b : btns) b.setEnabled(true);
-                    if (checkWin(btns, "O")) { JOptionPane.showMessageDialog(aboutDlg, "The Notebook wins!"); resetTTT(btns); return; }
-                    if (isFull(btns)) { JOptionPane.showMessageDialog(aboutDlg, "Draw!"); resetTTT(btns); return; }
+                    for (JButton b : btns) b.setEnabled(true);
+                    if (checkWin(btns, "O")) { JOptionPane.showMessageDialog(dlg, "The Notebook wins!"); resetTTT(btns); }
+                    else if (isFull(btns)) { JOptionPane.showMessageDialog(dlg, "Draw!"); resetTTT(btns); }
                 });
-                timer.setRepeats(false);
-                timer.start();
+                t2.setRepeats(false); t2.start();
             });
             grid.add(btns[i]);
         }
-        tttPanel.add(grid, BorderLayout.CENTER);
-        
+        root.add(grid, BorderLayout.CENTER);
+
         JButton resetBtn = new JButton("Reset Game");
         ModernUI.styleButton(resetBtn, currentTheme, "secondary");
         resetBtn.addActionListener(e -> resetTTT(btns));
-        tttPanel.add(resetBtn, BorderLayout.SOUTH);
-        
-        mainPanel.add(tttPanel, BorderLayout.CENTER);
-        aboutDlg.setContentPane(mainPanel);
-        aboutDlg.setVisible(true);
+        root.add(resetBtn, BorderLayout.SOUTH);
+        return root;
+    }
+
+    // ── About dialog helpers ──
+
+    private static class RoundedBorder implements javax.swing.border.Border {
+        private final Color color; private final int radius; private final int thickness;
+        RoundedBorder(Color c, int r, int t) { color=c; radius=r; thickness=t; }
+        @Override public Insets getBorderInsets(Component c) { return new Insets(thickness+2, thickness+4, thickness+2, thickness+4); }
+        @Override public boolean isBorderOpaque() { return false; }
+        @Override public void paintBorder(Component c, Graphics g, int x, int y, int w, int h) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color); g2.setStroke(new BasicStroke(thickness));
+            g2.drawRoundRect(x, y, w-1, h-1, radius, radius); g2.dispose();
+        }
+    }
+
+    // ── Snake game ──
+    private JPanel buildSnakePanel(JDialog dlg) {
+        Color bg = currentTheme.getBackground();
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+
+        JPanel root = new JPanel(new BorderLayout(0, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        root.setOpaque(false);
+
+        JLabel title = new JLabel("Vector Viper", SwingConstants.CENTER);
+        title.setFont(ModernUI.uiFont(Font.BOLD, 16f));
+        title.setForeground(fg);
+
+        JLabel instructions = new JLabel("Arrow keys to move. Eat food. Don't crash.", SwingConstants.CENTER);
+        instructions.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        instructions.setForeground(ModernUI.withAlpha(fg, 150));
+
+        JPanel topBar = new JPanel();
+        topBar.setLayout(new BoxLayout(topBar, BoxLayout.Y_AXIS));
+        topBar.setOpaque(false);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+        instructions.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topBar.add(title);
+        topBar.add(Box.createVerticalStrut(4));
+        topBar.add(instructions);
+
+        final int CELL = 16, COLS = 22, ROWS = 18;
+        final int[] score = {0};
+        final java.util.Deque<int[]> snake = new java.util.ArrayDeque<>();
+        final int[][] food = {{16, 9}};
+        final int[] dir = {1, 0}; // dx, dy
+        final boolean[] running = {false};
+        final javax.swing.Timer[] gameTimer = {null};
+
+        snake.addFirst(new int[]{9,9});
+        snake.addFirst(new int[]{10,9});
+        snake.addFirst(new int[]{11,9});
+
+        JLabel scoreLabel = new JLabel("Score: 0", SwingConstants.CENTER);
+        scoreLabel.setFont(ModernUI.monoFont(Font.BOLD, 12f));
+        scoreLabel.setForeground(accent);
+
+        JPanel canvas = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                // Grid bg
+                g2.setColor(ModernUI.panelColor(currentTheme));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                // Food
+                g2.setColor(new Color(0xE5, 0x53, 0x53));
+                g2.fillRoundRect(food[0][0]*CELL+2, food[0][1]*CELL+2, CELL-4, CELL-4, 6, 6);
+                // Snake
+                boolean head = true;
+                for (int[] seg : snake) {
+                    g2.setColor(head ? accent : ModernUI.mix(accent, bg, 0.4f));
+                    g2.fillRoundRect(seg[0]*CELL+1, seg[1]*CELL+1, CELL-2, CELL-2, 5, 5);
+                    head = false;
+                }
+                g2.dispose();
+            }
+            @Override public Dimension getPreferredSize() { return new Dimension(COLS*CELL, ROWS*CELL); }
+        };
+        canvas.setOpaque(false);
+        canvas.setFocusable(true);
+
+        Runnable spawnFood = () -> {
+            java.util.Random rnd = new java.util.Random();
+            int[] pos = {0, 0};
+            do { pos[0] = rnd.nextInt(COLS); pos[1] = rnd.nextInt(ROWS); }
+            while (snake.stream().anyMatch(s -> s[0]==pos[0] && s[1]==pos[1]));
+            food[0][0] = pos[0]; food[0][1] = pos[1];
+        };
+
+        JButton startBtn = new JButton("Start Game");
+        ModernUI.styleButton(startBtn, currentTheme, "primary");
+
+        startBtn.addActionListener(e -> {
+            snake.clear();
+            snake.addFirst(new int[]{9,9});
+            snake.addFirst(new int[]{10,9});
+            snake.addFirst(new int[]{11,9});
+            dir[0] = 1; dir[1] = 0;
+            score[0] = 0;
+            scoreLabel.setText("Score: 0");
+            food[0][0] = 16; food[0][1] = 9;
+            running[0] = true;
+            if (gameTimer[0] != null) gameTimer[0].stop();
+            gameTimer[0] = new javax.swing.Timer(120, ae -> {
+                if (!running[0]) return;
+                int[] head2 = snake.peekFirst();
+                int nx = head2[0] + dir[0], ny = head2[1] + dir[1];
+                if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || snake.stream().anyMatch(s -> s[0]==nx && s[1]==ny)) {
+                    running[0] = false;
+                    gameTimer[0].stop();
+                    JOptionPane.showMessageDialog(dlg, "Game Over! Score: " + score[0]);
+                    return;
+                }
+                snake.addFirst(new int[]{nx, ny});
+                if (nx == food[0][0] && ny == food[0][1]) {
+                    score[0]++;
+                    scoreLabel.setText("Score: " + score[0]);
+                    spawnFood.run();
+                } else { snake.removeLast(); }
+                canvas.repaint();
+            });
+            gameTimer[0].start();
+            canvas.requestFocusInWindow();
+        });
+
+        canvas.addKeyListener(new KeyAdapter() {
+            @Override public void keyPressed(KeyEvent e) {
+                int k = e.getKeyCode();
+                if (k == KeyEvent.VK_LEFT  && dir[0] != 1)  { dir[0]=-1; dir[1]=0; }
+                if (k == KeyEvent.VK_RIGHT && dir[0] != -1) { dir[0]=1;  dir[1]=0; }
+                if (k == KeyEvent.VK_UP    && dir[1] != 1)  { dir[0]=0;  dir[1]=-1; }
+                if (k == KeyEvent.VK_DOWN  && dir[1] != -1) { dir[0]=0;  dir[1]=1; }
+            }
+        });
+
+        dlg.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { if (gameTimer[0]!=null) gameTimer[0].stop(); }
+        });
+
+        JPanel canvasWrap = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER));
+        canvasWrap.add(canvas);
+
+        JPanel bottom = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        bottom.add(scoreLabel);
+        bottom.add(startBtn);
+
+        root.add(topBar, BorderLayout.NORTH);
+        root.add(canvasWrap, BorderLayout.CENTER);
+        root.add(bottom, BorderLayout.SOUTH);
+        return root;
+    }
+
+    // ── Verble game ──
+    private static final String[] VERBLE_WORDS = {
+        "about","above","abuse","actor","acute","admit","adopt","adult","after","again","agent","agree","ahead","alarm",
+        "album","alert","alien","align","alike","alive","alley","allow","alone","along","alter","among","angel","anger",
+        "angle","angry","anime","ankle","annex","apart","apple","apply","arena","argue","arise","armor","aroma","arrow",
+        "aside","askew","asset","atlas","attic","audio","audit","avoid","awake","aware","awful","basic","basis","batch",
+        "beach","beard","beast","began","begin","being","below","bench","bible","birth","black","blade","blame","bland",
+        "blank","blast","blaze","bleed","blend","bless","blind","block","blood","blown","blues","blunt","board","bonus",
+        "boost","booth","bound","boxer","brain","brand","brave","bread","break","breed","brick","bride","brief","bring",
+        "broad","broke","brook","brown","brush","buddy","build","built","buyer","cabin","cache","camel","candy","carry",
+        "catch","cause","chain","chair","chaos","chase","cheap","check","cheek","chess","chest","chief","child","china",
+        "choir","chunk","civic","civil","claim","class","clean","clear","clerk","click","cliff","climb","cling","clock",
+        "clone","cloud","coach","coast","cobra","comet","comic","comma","coral","count","court","cover","crack","craft",
+        "crane","crash","cream","creek","crime","crisp","cross","crowd","crown","cruel","crush","curve","cycle","daily",
+        "dance","dandy","defer","delay","depth","derby","devil","dirty","disco","drink","drive","drone","drown","drunk",
+        "early","earth","eight","elect","elite","ember","empty","enjoy","enter","entry","epoch","equal","error","essay"
+    };
+
+    private JPanel buildVerblePanel(JDialog parent) {
+        Color bg = currentTheme.getBackground();
+        Color fg = currentTheme.getForeground();
+        Color accent = currentTheme.getAccent();
+        Color panel = ModernUI.panelColor(currentTheme);
+
+        Color GREEN  = new Color(0x53, 0x8D, 0x4E);
+        Color YELLOW = new Color(0xB5, 0x9F, 0x3B);
+        Color GRAY   = new Color(0x3A, 0x3A, 0x3C);
+
+        // Pick daily word
+        int doy = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR);
+        final String[] answer = { VERBLE_WORDS[doy % VERBLE_WORDS.length].toUpperCase() };
+
+        JPanel outer = new JPanel();
+        outer.setLayout(new BoxLayout(outer, BoxLayout.Y_AXIS));
+        outer.setOpaque(false);
+
+        JLabel subtitle = new JLabel("Guess the 5-letter word. 6 tries.", SwingConstants.CENTER);
+        subtitle.setFont(ModernUI.uiFont(Font.PLAIN, 11f));
+        subtitle.setForeground(ModernUI.withAlpha(fg, 150));
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(subtitle);
+        outer.add(Box.createVerticalStrut(8));
+
+        JLabel resultLbl = new JLabel(" ", SwingConstants.CENTER);
+        resultLbl.setFont(ModernUI.uiFont(Font.BOLD, 13f));
+        resultLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(resultLbl);
+        outer.add(Box.createVerticalStrut(4));
+
+        // 6×5 grid
+        JPanel gridPanel = new JPanel(new GridLayout(6, 5, 4, 4));
+        gridPanel.setOpaque(false);
+        JLabel[][] cells = new JLabel[6][5];
+        for (int r = 0; r < 6; r++) for (int c = 0; c < 5; c++) {
+            cells[r][c] = new JLabel("", SwingConstants.CENTER) {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getBackground());
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                    g2.setColor(ModernUI.hairline(currentTheme));
+                    g2.setStroke(new BasicStroke(1));
+                    g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 8, 8);
+                    g2.dispose();
+                    super.paintComponent(g);
+                }
+            };
+            cells[r][c].setPreferredSize(new Dimension(48, 48));
+            cells[r][c].setFont(ModernUI.uiFont(Font.BOLD, 16f));
+            cells[r][c].setForeground(fg);
+            cells[r][c].setBackground(panel);
+            cells[r][c].setOpaque(false);
+            gridPanel.add(cells[r][c]);
+        }
+        JPanel gridWrap = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER));
+        gridWrap.add(gridPanel);
+        gridWrap.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(gridWrap);
+        outer.add(Box.createVerticalStrut(8));
+
+        // Alphabet row
+        JPanel alphaRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 3, 2));
+        alphaRow.setOpaque(false);
+        java.util.Map<Character, JLabel> alphaMap = new java.util.HashMap<>();
+        for (char ch = 'A'; ch <= 'Z'; ch++) {
+            JLabel lbl = new JLabel(String.valueOf(ch), SwingConstants.CENTER);
+            lbl.setFont(ModernUI.uiFont(Font.BOLD, 10f));
+            lbl.setForeground(fg);
+            lbl.setOpaque(true);
+            lbl.setBackground(panel);
+            lbl.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
+            alphaMap.put(ch, lbl);
+            alphaRow.add(lbl);
+        }
+        alphaRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(alphaRow);
+        outer.add(Box.createVerticalStrut(8));
+
+        // Input row
+        JPanel inputRow = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+        JTextField guessField = new JTextField(8);
+        ModernUI.styleTextField(guessField, currentTheme, false);
+        JLabel errLbl = new JLabel(" ");
+        errLbl.setFont(ModernUI.uiFont(Font.PLAIN, 10f));
+        errLbl.setForeground(new Color(0xE0, 0x50, 0x50));
+        JButton guessBtn = new JButton("Guess");
+        ModernUI.styleButton(guessBtn, currentTheme, "primary");
+        JButton newGameBtn = new JButton("New Game");
+        ModernUI.styleButton(newGameBtn, currentTheme, "secondary");
+        inputRow.add(guessField);
+        inputRow.add(guessBtn);
+        inputRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(inputRow);
+        JPanel errRow = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER));
+        errRow.add(errLbl);
+        errRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(errRow);
+        JPanel newGameRow = ModernUI.transparentPanel(new FlowLayout(FlowLayout.CENTER));
+        newGameRow.add(newGameBtn);
+        newGameRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        outer.add(newGameRow);
+
+        // Enforce 5-letter uppercase
+        final int[] currentRow = {0};
+        final boolean[] locked = {false};
+        guessField.addKeyListener(new KeyAdapter() {
+            @Override public void keyTyped(KeyEvent e) {
+                if (!Character.isLetter(e.getKeyChar())) { e.consume(); return; }
+                if (guessField.getText().length() >= 5) { e.consume(); return; }
+                e.setKeyChar(Character.toUpperCase(e.getKeyChar()));
+                errLbl.setText(" ");
+            }
+        });
+
+        Runnable submitGuess = () -> {
+            if (locked[0]) return;
+            String guess = guessField.getText().trim().toUpperCase();
+            if (guess.length() != 5) { errLbl.setText("Word must be 5 letters"); return; }
+            int row = currentRow[0];
+            String ans = answer[0];
+
+            // Frequency-count approach
+            int[] ansFreq = new int[26];
+            boolean[] green = new boolean[5];
+            for (int i = 0; i < 5; i++) {
+                if (guess.charAt(i) == ans.charAt(i)) { green[i] = true; }
+                else { ansFreq[ans.charAt(i) - 'A']++; }
+            }
+            Color[] cellColors = new Color[5];
+            boolean[] yellow = new boolean[5];
+            for (int i = 0; i < 5; i++) {
+                if (green[i]) { cellColors[i] = GREEN; }
+                else {
+                    int ci = guess.charAt(i) - 'A';
+                    if (ansFreq[ci] > 0) { yellow[i] = true; ansFreq[ci]--; cellColors[i] = YELLOW; }
+                    else { cellColors[i] = GRAY; }
+                }
+            }
+            // Apply colors
+            java.util.Map<Character, Color> bestColor = new java.util.HashMap<>();
+            for (int i = 0; i < 5; i++) {
+                char ch = guess.charAt(i);
+                cells[row][i].setText(String.valueOf(ch));
+                cells[row][i].setBackground(cellColors[i]);
+                cells[row][i].setForeground(Color.WHITE);
+                // Best alpha indicator
+                Color prev = bestColor.getOrDefault(ch, null);
+                Color cur = cellColors[i];
+                if (prev == null || cur == GREEN || (cur == YELLOW && prev == GRAY)) bestColor.put(ch, cur);
+            }
+            for (java.util.Map.Entry<Character, Color> entry : bestColor.entrySet()) {
+                JLabel al = alphaMap.get(entry.getKey());
+                if (al != null) { al.setBackground(entry.getValue()); al.setForeground(Color.WHITE); }
+            }
+            currentRow[0]++;
+            guessField.setText("");
+
+            if (guess.equals(ans)) {
+                resultLbl.setText("Verble solved!");
+                resultLbl.setForeground(accent);
+                locked[0] = true;
+            } else if (currentRow[0] >= 6) {
+                resultLbl.setText("The word was: " + ans);
+                resultLbl.setForeground(new Color(0xC0, 0x50, 0x50));
+                locked[0] = true;
+            }
+        };
+
+        guessBtn.addActionListener(e -> submitGuess.run());
+        guessField.addActionListener(e -> submitGuess.run());
+
+        newGameBtn.addActionListener(e -> {
+            answer[0] = VERBLE_WORDS[new java.util.Random().nextInt(VERBLE_WORDS.length)].toUpperCase();
+            for (int r = 0; r < 6; r++) for (int c = 0; c < 5; c++) {
+                cells[r][c].setText(""); cells[r][c].setBackground(panel); cells[r][c].setForeground(fg);
+            }
+            for (JLabel al : alphaMap.values()) { al.setBackground(panel); al.setForeground(fg); }
+            guessField.setText(""); guessField.setEnabled(true);
+            resultLbl.setText(" "); errLbl.setText(" ");
+            currentRow[0] = 0; locked[0] = false;
+        });
+
+        return outer;
     }
 
     private void openExternalLink(String url) {
@@ -2028,6 +2627,81 @@ public class NotebookMe extends JFrame {
                 return x;
             }
         }.parse();
+    }
+
+
+
+
+
+    private void openGlobalSearch() {
+        JDialog dialog = new JDialog(this, "Global Search", true);
+        dialog.setSize(500, 600);
+        dialog.setLocationRelativeTo(this);
+        
+        SurfacePanel root = new SurfacePanel(new BorderLayout(0, 10), currentTheme.getBackground(), ModernUI.hairline(currentTheme), 0);
+        root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        
+        JTextField searchIn = new JTextField();
+        ModernUI.styleTextField(searchIn, currentTheme, false);
+        
+        DefaultListModel<String> model = new DefaultListModel<>();
+        JList<String> list = new JList<>(model);
+        ModernUI.styleList(list, currentTheme);
+        
+        java.util.Map<String, File> resultFiles = new java.util.HashMap<>();
+        
+        searchIn.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { runSearch(); }
+            public void removeUpdate(DocumentEvent e) { runSearch(); }
+            public void changedUpdate(DocumentEvent e) { runSearch(); }
+            
+            private void runSearch() {
+                String q = searchIn.getText().toLowerCase().trim();
+                model.clear();
+                resultFiles.clear();
+                if (q.length() < 2) return;
+                searchDir(notebookDir, q, model, resultFiles);
+            }
+        });
+        
+        list.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    String sel = list.getSelectedValue();
+                    if (sel != null && resultFiles.containsKey(sel)) {
+                        loadFileIntoTab(resultFiles.get(sel));
+                        dialog.dispose();
+                    }
+                }
+            }
+        });
+        
+        root.add(searchIn, BorderLayout.NORTH);
+        root.add(new JScrollPane(list), BorderLayout.CENTER);
+        dialog.setContentPane(root);
+        dialog.setVisible(true);
+    }
+
+    private void searchDir(File dir, String q, DefaultListModel<String> model, java.util.Map<String, File> resultFiles) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f.isDirectory()) searchDir(f, q, model, resultFiles);
+            else if (f.getName().endsWith(".txt")) {
+                try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        if (line.toLowerCase().contains(q)) {
+                            String entry = f.getName() + ": " + line.trim();
+                            if (entry.length() > 80) entry = entry.substring(0, 77) + "...";
+                            model.addElement(entry);
+                            resultFiles.put(entry, f);
+                            break;
+                        }
+                    }
+                } catch (IOException ignored) {}
+            }
+        }
     }
 
     public static void main(String[] args) { SwingUtilities.invokeLater(NotebookMe::new); }
